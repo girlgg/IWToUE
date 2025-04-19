@@ -11,6 +11,11 @@ FIWToUELocalizationManager& FIWToUELocalizationManager::Get()
 	return Instance;
 }
 
+const FString* FIWToUELocalizationManager::GetStringPtr(const FString& Key) const
+{
+	return LocalizationMap.Find(Key);
+}
+
 FString FIWToUELocalizationManager::GetString(const FString& Key, const FString& NotFoundText) const
 {
 	const FString* FoundText = LocalizationMap.Find(Key);

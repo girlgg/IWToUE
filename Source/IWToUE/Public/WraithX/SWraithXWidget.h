@@ -137,37 +137,22 @@ public:
 
 	void Construct(const FArguments& InArgs);
 
+	~SWraithXWidget();
+
 private:
 	TSharedRef<ITableRow> GenerateListRow(TSharedPtr<FCoDAsset> Item, const TSharedRef<STableViewBase>& OwnerTable);
-	void HandleSearchChanged(const FText& NewText);
-	bool MatchSearchCondition(const TSharedPtr<FCoDAsset>& Item);
-	void LoadInitialAssets();
-	void HandleDoubleClick(TSharedPtr<FCoDAsset> Item);
-	FReply HandleClearSearchText();
-	FReply HandleSearchButton();
-	void HandleSelectionChanged(TSharedPtr<FCoDAsset> Item, ESelectInfo::Type SelectInfo);
-	FReply HandleRefreshGame();
-	FReply HandleLoadGame();
-	FReply HandleImportSelected();
-	FReply HandleImportAll();
-	FReply HandleSettingsButton();
-	void UpdateAssetCount();
-	void OnLoadCompleted();
-
-	void SetLoadingProgress(float InProgress);
-
 	void OnSortColumnChanged(const EColumnSortPriority::Type SortPriority, const FName& ColumnId,
 	                         const EColumnSortMode::Type NewSortMode);
 	EColumnSortMode::Type GetSortMode(const FName ColumnId) const;
 	void SortData();
 
-private:
 	// --- UI Construction Helpers ---
-	
+
 	TSharedRef<SWidget> CreateTopToolbar();
 	TSharedRef<SWidget> CreateMainArea();
 	TSharedRef<SWidget> CreateBottomPanel();
 	TSharedRef<SWidget> CreateStatusBar();
+	TSharedRef<SWidget> CreateFilterMenuContent();
 
 	// --- Slate Event Handlers (mostly delegate to ViewModel) ---
 
@@ -183,8 +168,28 @@ private:
 	void HandleImportPathCommitted(const FText& InText, ETextCommit::Type CommitType);
 	void HandleListSelectionChanged(TSharedPtr<FCoDAsset> Item, ESelectInfo::Type SelectInfo);
 	void HandleListDoubleClick(TSharedPtr<FCoDAsset> Item);
+	void HandleOptionalParamsCommitted(const FText& InText, ETextCommit::Type CommitType);
 
+	// --- ViewModel Delegate Handlers ---
+	
+	void HandleListChanged();
+	void HandleAssetCountChanged(int32 TotalAssets, int32 FilteredAssets);
+	void HandleLoadingStateChanged(bool bIsLoading);
+	void HandleImportPathChanged(const FString& NewPath);
+	void HandleShowNotification(const FText& Message);
+	void HandlePreviewAsset(TSharedPtr<FCoDAsset> AssetToPreview);
+	void ShowNotificationPopup(const FText& Message);
+
+	// --- UI State ---
+	
 	bool IsUIEnabled() const;
+	EVisibility GetLoadingIndicatorVisibility() const;
+	TOptional<float> GetLoadingProgress() const;
+	FText GetAssetCountText() const;
+	FText GetImportPathText() const;
+	FText GetOptionalParamsText() const;
+	bool CanImportSelected() const;
+	bool CanImportAll() const;
 	
 	// 数据源
 	TArray<TSharedPtr<FCoDAsset>> FilteredItems{};
@@ -213,9 +218,8 @@ private:
 	TUniquePtr<FWraithX> WraithX = MakeUnique<FWraithX>();
 
 	// --- UI Element References ---
-	
+
 	TSharedPtr<SAssetInfoPanel> AssetInfoPanel;
 
 	float CurrentLoadingProgress = 0.f;
-	bool bIsLoading = false;
 };

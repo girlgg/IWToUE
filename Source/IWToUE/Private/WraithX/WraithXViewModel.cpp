@@ -41,11 +41,12 @@ void FWraithXViewModel::Initialize(TSharedPtr<FAssetImportManager> InAssetImport
 	if (!InAssetImportManager.IsValid())
 	{
 		UE_LOG(LogTemp, Error, TEXT("FWraithXViewModel::Initialize - Invalid FAssetImportManager provided!"));
+		ShowNotification(NSLOCTEXT("WraithXViewModel", "InitError", "Initialization Failed: Asset Manager Invalid."));
 		return;
 	}
 
 	Cleanup();
-	
+
 	AssetImportManager = InAssetImportManager;
 
 	AssetImportManager->OnAssetInitCompletedDelegate.AddSP(AsShared(), &FWraithXViewModel::HandleAssetInitCompleted);
@@ -62,11 +63,27 @@ void FWraithXViewModel::Cleanup()
 		AssetImportManager->OnAssetLoadingDelegate.RemoveAll(this);
 	}
 	AssetImportManager.Reset();
+
+	AllLoadedAssets.Empty();
+	FilteredItems.Empty();
+	SelectedItems.Empty();
+	TotalAssetCount = 0;
+	CurrentSearchText.Empty();
+
+	SetLoadingState(false);
+	UpdateLoadingProgress(0.0f);
+	ExecuteDelegateOnGameThread(OnListChangedDelegate);
+	ExecuteDelegateOnGameThread(OnAssetCountChangedDelegate, TotalAssetCount, FilteredItems.Num());
 }
 
 const TArray<TSharedPtr<FCoDAsset>>& FWraithXViewModel::GetFilteredItems() const
 {
 	return FilteredItems;
+}
+
+const TArray<TSharedPtr<FCoDAsset>>& FWraithXViewModel::GetSelectedItems() const
+{
+	return SelectedItems;
 }
 
 float FWraithXViewModel::GetLoadingProgress() const
@@ -111,9 +128,9 @@ const FString& FWraithXViewModel::GetSearchText() const
 
 void FWraithXViewModel::SetSearchText(const FString& InText)
 {
-	if (CurrentSearchText != InText)
+	if (FString TrimmedText = InText.TrimStartAndEnd(); CurrentSearchText != TrimmedText)
 	{
-		CurrentSearchText = InText;
+		CurrentSearchText = TrimmedText;
 		ApplyFilteringAndSortingAsync();
 	}
 }
@@ -131,10 +148,12 @@ void FWraithXViewModel::LoadGame()
 	UpdateLoadingProgress(0.0f);
 	AllLoadedAssets.Empty();
 	FilteredItems.Empty();
+	SelectedItems.Empty();
 	TotalAssetCount = 0;
 	ExecuteDelegateOnGameThread(OnListChangedDelegate);
 	ExecuteDelegateOnGameThread(OnAssetCountChangedDelegate, TotalAssetCount, 0);
 
+	ShowNotification(NSLOCTEXT("WraithXViewModel", "LoadingGame", "Loading game assets..."));
 	AssetImportManager->InitializeGame();
 }
 
@@ -146,10 +165,12 @@ void FWraithXViewModel::RefreshGame()
 	UpdateLoadingProgress(0.0f);
 	AllLoadedAssets.Empty();
 	FilteredItems.Empty();
+	SelectedItems.Empty();
 	TotalAssetCount = 0;
 	ExecuteDelegateOnGameThread(OnListChangedDelegate);
 	ExecuteDelegateOnGameThread(OnAssetCountChangedDelegate, TotalAssetCount, 0);
 
+	ShowNotification(NSLOCTEXT("WraithXViewModel", "RefreshingGame", "Refreshing game assets..."));
 	AssetImportManager->RefreshGame();
 }
 
@@ -179,9 +200,12 @@ void FWraithXViewModel::ImportSelectedAssets()
 		NSLOCTEXT("WraithXViewModel", "ImportStartedSelected", "Starting import for {0} selected assets to {1}..."),
 		FText::AsNumber(SelectedItems.Num()), FText::FromString(ImportPath)));
 
-	AssetImportManager->ImportSelection(ImportPath, SelectedItems, OptionalParams);
+	TArray<TSharedPtr<FCoDAsset>> ItemsToImport = SelectedItems;
+	AssetImportManager->ImportSelection(ImportPath, ItemsToImport, OptionalParams);
 
-	// Need delegates from manager for import progress and completion to update UI state
+	// Need feedback from AssetImportManager when done.
+	// For now, assume it happens instantly and maybe clear selection?
+	// SetLoadingState(false); // Need completion delegate from manager
 }
 
 void FWraithXViewModel::ImportAllAssets()
@@ -192,6 +216,10 @@ void FWraithXViewModel::ImportAllAssets()
 		{
 			ShowNotification(NSLOCTEXT("WraithXViewModel", "NoAssetsFiltered",
 			                           "No assets match the current filter for import."));
+		}
+		else if (FilteredItems.IsEmpty())
+		{
+			ShowNotification(NSLOCTEXT("WraithXViewModel", "NoAssetsToImport", "No assets available to import."));
 		}
 		return;
 	}
@@ -211,7 +239,8 @@ void FWraithXViewModel::ImportAllAssets()
 		NSLOCTEXT("WraithXViewModel", "ImportStartedAll", "Starting import for {0} filtered assets to {1}..."),
 		FText::AsNumber(FilteredItems.Num()), FText::FromString(ImportPath)));
 
-	AssetImportManager->ImportSelection(ImportPath, FilteredItems, OptionalParams);
+	TArray<TSharedPtr<FCoDAsset>> ItemsToImport = FilteredItems;
+	AssetImportManager->ImportSelection(ImportPath, ItemsToImport, OptionalParams);
 	// Import the currently filtered list
 
 	// Need delegates from manager for import progress and completion
@@ -228,6 +257,12 @@ void FWraithXViewModel::SetImportPath(const FString& Path)
 		                           "Import path must start with /Game/ and be inside the Content directory."));
 	}
 
+	FPaths::NormalizeDirectoryName(SanitizedPath);
+	if (!SanitizedPath.EndsWith(TEXT("/")))
+	{
+		SanitizedPath += TEXT("/");
+	}
+
 	if (ImportPath != SanitizedPath)
 	{
 		ImportPath = SanitizedPath;
@@ -237,7 +272,7 @@ void FWraithXViewModel::SetImportPath(const FString& Path)
 
 void FWraithXViewModel::SetOptionalParams(const FString& Params)
 {
-	OptionalParams = Params;
+	OptionalParams = Params.TrimStartAndEnd();
 }
 
 void FWraithXViewModel::BrowseImportPath(TSharedPtr<SWindow> ParentWindow)
@@ -252,7 +287,7 @@ void FWraithXViewModel::BrowseImportPath(TSharedPtr<SWindow> ParentWindow)
 			                           : nullptr;
 
 		FString SelectedPath;
-		const FString DefaultPath = FPaths::ProjectContentDir();
+		const FString DefaultPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir());
 
 		if (DesktopPlatform->OpenDirectoryDialog(
 			ParentWindowHandle,
@@ -303,8 +338,7 @@ void FWraithXViewModel::SetSortColumn(FName ColumnId)
 			                  : EColumnSortMode::Ascending;
 	}
 
-	SortDataInternal(FilteredItems);
-	ExecuteDelegateOnGameThread(OnListChangedDelegate);
+	ApplyFilteringAndSortingAsync();
 }
 
 void FWraithXViewModel::SetSelectedItems(const TArray<TSharedPtr<FCoDAsset>>& InSelectedItems)
@@ -329,35 +363,44 @@ void FWraithXViewModel::SetLoadingState(bool bNewLoadingState)
 
 		if (!bIsLoading)
 		{
-			UpdateLoadingProgress(1.0f);
+			UpdateLoadingProgress(bIsLoading ? 0.0f : 1.0f);
+		}
+		else
+		{
+			UpdateLoadingProgress(0.0f);
 		}
 	}
 }
 
 void FWraithXViewModel::UpdateLoadingProgress(float InProgress)
 {
-	CurrentLoadingProgress = FMath::Clamp(InProgress, 0.0f, 1.0f);
-	ExecuteDelegateOnGameThread(OnLoadingProgressChangedDelegate, CurrentLoadingProgress);
+	float ClampedProgress = FMath::Clamp(InProgress, 0.0f, 1.0f);
+	if (CurrentLoadingProgress != ClampedProgress)
+	{
+		CurrentLoadingProgress = ClampedProgress;
+		ExecuteDelegateOnGameThread(OnLoadingProgressChangedDelegate, CurrentLoadingProgress);
+	}
 }
 
 void FWraithXViewModel::HandleAssetInitCompleted()
 {
-	AsyncTask(ENamedThreads::GameThread, [Self = AsShared()]()
+	TArray<TSharedPtr<FCoDAsset>> LoadedAssets;
+	if (AssetImportManager.IsValid())
 	{
-		if (Self->AssetImportManager.IsValid())
-		{
-			Self->AllLoadedAssets = Self->AssetImportManager->GetLoadedAssets();
-			Self->TotalAssetCount = Self->AllLoadedAssets.Num();
-		}
-		else
-		{
-			Self->AllLoadedAssets.Empty();
-			Self->TotalAssetCount = 0;
-		}
+		LoadedAssets = AssetImportManager->GetLoadedAssets(); // Assume this is safe thread-wise or manager handles it
+	}
+
+	AsyncTask(ENamedThreads::GameThread, [Self = SharedThis(this), LoadedAssets = MoveTemp(LoadedAssets)]() mutable
+	{
+		Self->AllLoadedAssets = MoveTemp(LoadedAssets);
+		Self->TotalAssetCount = Self->AllLoadedAssets.Num();
 
 		Self->ApplyFilteringAndSortingAsync();
 
 		Self->SetLoadingState(false);
+		Self->ShowNotification(FText::Format(
+			NSLOCTEXT("WraithXViewModel", "LoadComplete", "Loaded {0} assets."),
+			FText::AsNumber(Self->TotalAssetCount)));
 	});
 }
 
@@ -370,29 +413,48 @@ void FWraithXViewModel::ApplyFilteringAndSortingAsync()
 {
 	CancelCurrentAsyncTask();
 
-	FString SearchText = CurrentSearchText;
+	FString SearchTextCopy = CurrentSearchText;
 	TArray<TSharedPtr<FCoDAsset>> AssetsToProcess = AllLoadedAssets;
-	EWraithXSortColumn SortColumn = CurrentSortColumn;
-	EColumnSortMode::Type SortMode = CurrentSortMode;
+	EWraithXSortColumn SortColumnCopy = CurrentSortColumn;
+	EColumnSortMode::Type SortModeCopy = CurrentSortMode;
 	int32 CurrentTotalCount = TotalAssetCount;
 
 	CurrentAsyncTask = Async(EAsyncExecution::ThreadPool,
-	                         [this, AssetsToProcess, SearchText, SortColumn, SortMode, CurrentTotalCount
+	                         [this, AssetsToProcess, SearchTextCopy, SortColumnCopy, SortModeCopy
 	                         ]() mutable -> TArray<TSharedPtr<FCoDAsset>>
 	                         {
 		                         TArray<TSharedPtr<FCoDAsset>> TempFilteredItems = FilterAssets_WorkerThread(
-			                         AssetsToProcess, SearchText);
+			                         AssetsToProcess, SearchTextCopy);
 
 		                         SortDataInternal(TempFilteredItems);
 
 		                         return TempFilteredItems;
-	                         }).Then([this, CurrentTotalCount](TFuture<TArray<TSharedPtr<FCoDAsset>>> ResultFuture)
+	                         });
+	CurrentAsyncTask.Then([this, CurrentTotalCount](TFuture<TArray<TSharedPtr<FCoDAsset>>> ResultFuture)
 	{
 		if (!this) return;
 
-		TArray<TSharedPtr<FCoDAsset>> NewFilteredItems = ResultFuture.Get();
+		TArray<TSharedPtr<FCoDAsset>> NewFilteredItems;
+		bool bTaskCompleted = ResultFuture.IsReady();
 
-		FinalizeUpdate_GameThread(MoveTemp(NewFilteredItems), CurrentTotalCount);
+		if (bTaskCompleted)
+		{
+			NewFilteredItems = ResultFuture.Get(); // Get the result
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Filtering/Sorting task did not complete successfully."));
+			return;
+		}
+
+		AsyncTask(ENamedThreads::GameThread,
+		          [this, NewFilteredItems = MoveTempIfPossible(NewFilteredItems), CurrentTotalCount]() mutable
+		          {
+			          if (this)
+			          {
+				          FinalizeUpdate_GameThread(MoveTemp(NewFilteredItems), CurrentTotalCount);
+			          }
+		          });
 	});
 }
 
@@ -439,50 +501,50 @@ void FWraithXViewModel::SortDataInternal(TArray<TSharedPtr<FCoDAsset>>& ItemsToS
 
 	bool bAscending = (CurrentSortMode == EColumnSortMode::Ascending);
 
+	auto CompareNames = [bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
+	{
+		if (!A.IsValid()) return !bAscending;
+		if (!B.IsValid()) return bAscending;
+		int32 CompareResult = A->AssetName.Compare(B->AssetName, ESearchCase::IgnoreCase);
+		return bAscending ? (CompareResult < 0) : (CompareResult > 0);
+	};
+
+	auto CompareStatus = [bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
+	{
+		if (!A.IsValid()) return !bAscending;
+		if (!B.IsValid()) return bAscending;
+		int32 CompareResult = A->GetAssetStatusText().ToString().Compare(
+			B->GetAssetStatusText().ToString(), ESearchCase::IgnoreCase);
+		return bAscending ? (CompareResult < 0) : (CompareResult > 0);
+	};
+
+	auto CompareType = [bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
+	{
+		if (!A.IsValid()) return !bAscending;
+		if (!B.IsValid()) return bAscending;
+		int32 CompareResult = A->GetAssetTypeText().ToString().Compare(B->GetAssetTypeText().ToString(),
+		                                                               ESearchCase::IgnoreCase);
+		return bAscending ? (CompareResult < 0) : (CompareResult > 0);
+	};
+
+	auto CompareSize = [bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
+	{
+		if (!A.IsValid()) return !bAscending;
+		if (!B.IsValid()) return bAscending;
+		if (A->AssetSize == B->AssetSize) return false;
+		return bAscending ? (A->AssetSize < B->AssetSize) : (A->AssetSize > B->AssetSize);
+	};
+
 	switch (CurrentSortColumn)
 	{
-	case EWraithXSortColumn::AssetName:
-		ItemsToSort.Sort([bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			if (!A.IsValid()) return false;
-			if (!B.IsValid()) return true;
-			int32 CompareResult = A->AssetName.Compare(B->AssetName/*, ESearchCase::IgnoreCase*/);
-			return bAscending ? (CompareResult < 0) : (CompareResult > 0);
-		});
+	case EWraithXSortColumn::AssetName: ItemsToSort.Sort(CompareNames);
 		break;
-
-	case EWraithXSortColumn::Status:
-		ItemsToSort.Sort([bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			if (!A.IsValid()) return false;
-			if (!B.IsValid()) return true;
-			int32 CompareResult = A->GetAssetStatusText().CompareTo(
-				B->GetAssetStatusText()/*, ETextComparisonLevel::IgnoreCase*/);
-			return bAscending ? (CompareResult < 0) : (CompareResult > 0);
-		});
+	case EWraithXSortColumn::Status: ItemsToSort.Sort(CompareStatus);
 		break;
-
-	case EWraithXSortColumn::Type:
-		ItemsToSort.Sort([bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			if (!A.IsValid()) return false;
-			if (!B.IsValid()) return true;
-			int32 CompareResult = A->GetAssetTypeText().CompareTo(
-				B->GetAssetTypeText()/*, ETextComparisonLevel::IgnoreCase*/);
-			return bAscending ? (CompareResult < 0) : (CompareResult > 0);
-		});
+	case EWraithXSortColumn::Type: ItemsToSort.Sort(CompareType);
 		break;
-
-	case EWraithXSortColumn::Size:
-		ItemsToSort.Sort([bAscending](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			if (!A.IsValid()) return false;
-			if (!B.IsValid()) return true;
-			if (A->AssetSize == B->AssetSize) return false;
-			return bAscending ? (A->AssetSize < B->AssetSize) : (A->AssetSize > B->AssetSize);
-		});
+	case EWraithXSortColumn::Size: ItemsToSort.Sort(CompareSize);
 		break;
-
 	default:
 		break;
 	}
@@ -507,7 +569,7 @@ bool FWraithXViewModel::MatchSearchCondition(const TSharedPtr<FCoDAsset>& Item, 
 
 	for (const FString& Token : SearchTokens)
 	{
-		if (!Item->AssetName.Contains(Token/*, ESearchCase::IgnoreCase*/))
+		if (!Item->AssetName.Contains(Token, ESearchCase::IgnoreCase))
 		{
 			return false;
 		}

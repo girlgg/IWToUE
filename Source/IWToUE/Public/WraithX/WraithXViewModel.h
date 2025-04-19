@@ -68,6 +68,8 @@ public:
 	/** Gets the currently displayed list of filtered and sorted assets. */
 	const TArray<TSharedPtr<FCoDAsset>>& GetFilteredItems() const;
 
+	const TArray<TSharedPtr<FCoDAsset>>& GetSelectedItems() const;
+
 	/** Gets the current loading progress (0.0 to 1.0). */
 	float GetLoadingProgress() const;
 
@@ -187,7 +189,7 @@ private:
 	EColumnSortMode::Type CurrentSortMode = EColumnSortMode::None;
 
 	/** Handle for the active async filtering/sorting task */
-	TFuture<void> CurrentAsyncTask;
+	TFuture<TArray<TSharedPtr<FCoDAsset>>> CurrentAsyncTask;
 
 	bool bIsLoading = false;
 
@@ -204,8 +206,8 @@ template <typename DelegateType, typename... ParamTypes>
 void FWraithXViewModel::ExecuteDelegateOnGameThread(DelegateType& Delegate, ParamTypes... Params)
 {
 	auto ParamsTuple = std::make_tuple(std::forward<ParamTypes>(Params)...);
-    
-	AsyncTask(ENamedThreads::GameThread, [Delegate, ParamsTuple = std::move(ParamsTuple)]() mutable 
+
+	auto Invoke = [&Delegate, ParamsTuple = std::move(ParamsTuple)]() mutable
 	{
 		std::apply([&Delegate]<typename... T0>(T0&&... args) 
 		{
@@ -218,5 +220,14 @@ void FWraithXViewModel::ExecuteDelegateOnGameThread(DelegateType& Delegate, Para
 				Delegate.ExecuteIfBound(std::forward<T0>(args)...);
 			}
 		}, ParamsTuple);
-	});
+	};
+    
+	if (IsInGameThread())
+	{
+		Invoke();
+	}
+	else
+	{
+		AsyncTask(ENamedThreads::GameThread, MoveTemp(Invoke));
+	}
 }
