@@ -1,5 +1,7 @@
 ﻿#pragma once
+#include "WraithX/GameProcess.h"
 
+class IMemoryReader;
 struct FWraithXMaterial;
 struct FWraithXSound;
 struct FCoDModel;
@@ -29,7 +31,7 @@ public:
 
 	// --- 数据转换 ---
 
-	virtual bool TranslateModel(const FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo) = 0;
+	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo) = 0;
 	virtual bool TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) = 0;
 
 	virtual void ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;
@@ -43,9 +45,11 @@ public:
 	virtual bool LoadStreamedAnimData(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) = 0;
 
 protected:
-	TSharedPtr<FGameProcess> ProcessInstance;
+	TSharedPtr<IMemoryReader> MemoryReader;
+	TSharedPtr<FGameProcess> GameProcess;
 
-	IGameAssetHandler(TSharedPtr<FGameProcess> InProcessInstance) : ProcessInstance(InProcessInstance)
+	IGameAssetHandler(const TSharedPtr<FGameProcess>& InGameProcess) : MemoryReader(InGameProcess->GetMemoryReader()),
+	                                                                 GameProcess(InGameProcess)
 	{
 	}
 };

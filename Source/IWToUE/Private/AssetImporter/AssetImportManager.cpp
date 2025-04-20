@@ -64,8 +64,44 @@ TArray<TSharedPtr<FCoDAsset>> FAssetImportManager::GetLoadedAssets() const
 	return TArray<TSharedPtr<FCoDAsset>>();
 }
 
-void FAssetImportManager::ImportSelection(FString ImportPath, TArray<TSharedPtr<FCoDAsset>> Selection, FString OptionalParams)
+bool FAssetImportManager::ImportSelection(FString ImportPath, TArray<TSharedPtr<FCoDAsset>> Selection,
+                                          FString OptionalParams)
 {
+	if (!CurrentGameHandler.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("Cannot import: No valid game handler available."));
+		return false;
+	}
+
+	bool bAllSucceeded = true;
+
+	for (const auto& Asset : Selection)
+	{
+		if (!Asset.IsValid()) continue;
+
+		const TSharedPtr<IAssetImporter>* ImporterPtr = AssetImporters.Find(Asset->AssetType);
+
+		if (ImporterPtr && ImporterPtr->IsValid())
+		{
+			if (!(*ImporterPtr)->Import(ImportPath, Asset, CurrentGameHandler.Get(), this))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Failed to import asset: %s"), *Asset->AssetName);
+				bAllSucceeded = false;
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No importer found for asset type %d (Asset: %s)"),
+			       static_cast<int32>(Asset->AssetType), *Asset->AssetName);
+			if (Asset->AssetType != EWraithAssetType::RawFile)
+			{
+				bAllSucceeded = false;
+			}
+		}
+	}
+	UE_LOG(LogTemp, Log, TEXT("Import selection finished. Overall success: %s"),
+	       bAllSucceeded ? TEXT("True") : TEXT("False"));
+	return bAllSucceeded;
 }
 
 void FAssetImportManager::OnAssetInitCompletedInternal()

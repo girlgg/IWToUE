@@ -11,9 +11,9 @@ namespace CoDBonesHelper
 {
 	using BoneIndexVariant = TVariant<TArray<uint8>, TArray<uint16>, TArray<uint32>>;
 
-	void ReadXModelBones(TSharedPtr<FGameProcess> ProcessInstance, FWraithXModel& BaseModel, FWraithXModelLod& ModelLod,
-	                     FCastModelInfo& ResultModel);
+	void ReadXModelBones(TSharedPtr<IMemoryReader>& MemoryReader, const FWraithXModel& BaseModel,
+	                     FWraithXModelLod& ModelLod, FCastModelInfo& ResultModel);
 
-	void ReadBoneVariantInfo(TSharedPtr<FGameProcess> ProcessInstance, const uint64& ReadAddr, uint64 BoneLen,
-						 int32 BoneIndexSize, BoneIndexVariant& OutBoneParentVariant);
+	void ReadBoneVariantInfo(TSharedPtr<IMemoryReader>& MemoryReader, const uint64& ReadAddr, uint64 BoneLen,
+	                         int32 BoneIndexSize, BoneIndexVariant& OutBoneParentVariant);
 };

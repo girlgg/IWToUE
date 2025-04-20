@@ -41,7 +41,8 @@ public:
 	                       TSharedPtr<FCoDModel> ModelAddr);
 	static bool ReadXMaterial(FWraithXMaterial& OutMaterial, TSharedPtr<FGameProcess> ProcessInstance,
 	                          uint64 MaterialHandle);
-	static bool ReadXSound(FWraithXSound& OutSound, TSharedPtr<FGameProcess> ProcessInstance, TSharedPtr<FCoDAsset> InSound);
+	static bool ReadXSound(FWraithXSound& OutSound, TSharedPtr<FGameProcess> ProcessInstance,
+	                       TSharedPtr<FCoDAsset> InSound);
 
 	static void LoadXAnim(TSharedPtr<FGameProcess> ProcessInstance, FWraithXAnim& InAnim, FCastAnimationInfo& OutAnim);
 	static void LoadXModel(TSharedPtr<FGameProcess> ProcessInstance, FWraithXModel& BaseModel,

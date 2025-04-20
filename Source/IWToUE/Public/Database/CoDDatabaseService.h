@@ -28,6 +28,7 @@ public:
 	// --- Public Data Access API ---
 
 	// AssetName Operations
+	FString GetPrintfAssetName(uint64 Hash, const FString& NamePrefix = TEXT(""));
 	TOptional<FString> GetAssetNameSync(uint64 Hash);
 	void GetAssetNameAsync(uint64 Hash, TFunction<void(TOptional<FString>)> Callback);
 	void UpdateAssetNameAsync(uint64 Hash, const FString& Value, TFunction<void(bool)> CompletionCallback = nullptr);

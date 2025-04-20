@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+class IMemoryReader;
 class FGameProcess;
 
 namespace FCoDAssetHelper
@@ -11,12 +12,13 @@ namespace FCoDAssetHelper
 
 namespace FCoDMeshHelper
 {
-	uint8 FindFaceIndex(TSharedPtr<FGameProcess> ProcessInstance, uint64 PackedIndices, uint32 Index, uint8 Bits,
+	uint8 FindFaceIndex(TSharedPtr<IMemoryReader>& MemoryReader, uint64 PackedIndices, uint32 Index, uint8 Bits,
 	                    bool IsLocal = false);
 
-	bool UnpackFaceIndices(TSharedPtr<FGameProcess> ProcessInstance, TArray<uint16>& InFacesArr, uint64 Tables,
+	bool UnpackFaceIndices(TSharedPtr<IMemoryReader>& MemoryReader, TArray<uint16>& InFacesArr, uint64 Tables,
 	                       uint64 TableCount, uint64 PackedIndices,
 	                       uint64 Indices, uint64 FaceIndex, const bool IsLocal = false);
+	void UnpackCoDQTangent(const uint32 Packed, FVector3f& Tangent, FVector3f& Normal);
 };
 
 namespace VectorPacking

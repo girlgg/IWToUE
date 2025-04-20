@@ -142,6 +142,15 @@ void FCoDDatabaseService::SetCurrentGameContext(uint64 GameHash, const FString& 
 	FileTracker->StartTrackingAsync();
 }
 
+FString FCoDDatabaseService::GetPrintfAssetName(uint64 Hash, const FString& NamePrefix)
+{
+	Hash &= 0xFFFFFFFFFFFFFFF;
+	TOptional<FString> QueryAssetName = GetAssetNameSync(Hash);
+	if (QueryAssetName.IsSet())
+		return QueryAssetName.GetValue();
+	return FString::Printf(TEXT("%s_%llx"), *NamePrefix, Hash);
+}
+
 TOptional<FString> FCoDDatabaseService::GetAssetNameSync(uint64 Hash)
 {
 	if (!bIsInitialized || !AssetNameRepo) return TOptional<FString>();

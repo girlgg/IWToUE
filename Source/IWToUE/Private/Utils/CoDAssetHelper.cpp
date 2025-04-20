@@ -4,6 +4,7 @@
 #include "IAssetTools.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "CastManager/CastModel.h"
+#include "Interface/IMemoryReader.h"
 #include "UObject/SavePackage.h"
 #include "WraithX/CoDAssetType.h"
 #include "WraithX/GameProcess.h"
@@ -154,11 +155,10 @@ bool FCoDAssetHelper::SaveObjectToPackage(UObject* ObjectToSave, const FString& 
 	return false;
 }
 
-uint8 FCoDMeshHelper::FindFaceIndex(TSharedPtr<FGameProcess> ProcessInstance, uint64 PackedIndices, uint32 Index,
+uint8 FCoDMeshHelper::FindFaceIndex(TSharedPtr<IMemoryReader>& MemoryReader, uint64 PackedIndices, uint32 Index,
                                     uint8 Bits, bool IsLocal)
 {
-	return 0;
-	/*unsigned long BitIndex;
+	unsigned long BitIndex;
 
 	if (!_BitScanReverse64(&BitIndex, Bits)) BitIndex = 64;
 	else BitIndex ^= 0x3F;
@@ -168,53 +168,112 @@ uint8 FCoDMeshHelper::FindFaceIndex(TSharedPtr<FGameProcess> ProcessInstance, ui
 	const uint64 PackedIndicesPtr = PackedIndices + (Offset >> 3);
 	const uint8 BitOffset = Offset & 7;
 
-	const uint8 PackedIndice = ProcessInstance->ReadMemory<uint8>(PackedIndicesPtr, IsLocal);
+	uint8 PackedIndice;
+	MemoryReader->ReadMemory<uint8>(PackedIndicesPtr, PackedIndice, IsLocal);
 
 	if (BitOffset == 0)
 		return PackedIndice & ((1 << BitCount) - 1);
 
 	if (8 - BitOffset < BitCount)
 	{
-		const uint8 nextPackedIndice = ProcessInstance->ReadMemory<uint8>(PackedIndicesPtr + 1, IsLocal);
+		uint8 nextPackedIndice;
+		MemoryReader->ReadMemory<uint8>(PackedIndicesPtr + 1, nextPackedIndice, IsLocal);
 		return (PackedIndice >> BitOffset) & ((1 << (8 - BitOffset)) - 1) | ((nextPackedIndice & ((1 << (64 -
 			BitIndex - (8 - BitOffset))) - 1)) << (8 - BitOffset));
 	}
 
-	return (PackedIndice >> BitOffset) & ((1 << BitCount) - 1);*/
+	return (PackedIndice >> BitOffset) & ((1 << BitCount) - 1);
 }
 
-bool FCoDMeshHelper::UnpackFaceIndices(TSharedPtr<FGameProcess> ProcessInstance, TArray<uint16>& InFacesArr,
+bool FCoDMeshHelper::UnpackFaceIndices(TSharedPtr<IMemoryReader>& MemoryReader, TArray<uint16>& InFacesArr,
                                        uint64 Tables, uint64 TableCount, uint64 PackedIndices, uint64 Indices,
                                        uint64 FaceIndex, const bool IsLocal)
 {
-	return false;
-	/*InFacesArr.SetNum(3);
+	InFacesArr.SetNum(3);
 	uint64 CurrentFaceIndex = FaceIndex;
 	for (int i = 0; i < TableCount; i++)
 	{
 		uint64 TablePtr = Tables + (i * 40);
-		uint64 IndicesPtr = PackedIndices + ProcessInstance->ReadMemory<uint32>(TablePtr + 36, IsLocal);
-		uint8 Count = ProcessInstance->ReadMemory<uint8>(TablePtr + 35, IsLocal);
+		uint32 IndicesPtrOffset;
+		MemoryReader->ReadMemory<uint32>(TablePtr + 36, IndicesPtrOffset, IsLocal);
+		uint64 IndicesPtr = PackedIndices + IndicesPtrOffset;
+		uint8 Count;
+		MemoryReader->ReadMemory<uint8>(TablePtr + 35, Count, IsLocal);
 		if (CurrentFaceIndex < Count)
 		{
-			uint8 Bits = (uint8)(ProcessInstance->ReadMemory<uint8>(TablePtr + 34, IsLocal) - 1);
-			FaceIndex = ProcessInstance->ReadMemory<uint32>(TablePtr + 28, IsLocal);
+			uint8 Bits;
+			MemoryReader->ReadMemory<uint8>(TablePtr + 34, Bits, IsLocal);
+			Bits -= 1;
 
-			uint32 Face1Offset = FindFaceIndex(ProcessInstance, IndicesPtr, CurrentFaceIndex * 3 + 0, Bits, IsLocal) +
+			uint32 MemoryFaceIdx;
+			MemoryReader->ReadMemory<uint32>(TablePtr + 28, MemoryFaceIdx, IsLocal);
+			FaceIndex = MemoryFaceIdx;
+
+			uint32 Face1Offset = FindFaceIndex(MemoryReader, IndicesPtr, CurrentFaceIndex * 3 + 0, Bits, IsLocal) +
 				FaceIndex;
-			uint32 Face2Offset = FindFaceIndex(ProcessInstance, IndicesPtr, CurrentFaceIndex * 3 + 1, Bits, IsLocal) +
+			uint32 Face2Offset = FindFaceIndex(MemoryReader, IndicesPtr, CurrentFaceIndex * 3 + 1, Bits, IsLocal) +
 				FaceIndex;
-			uint32 Face3Offset = FindFaceIndex(ProcessInstance, IndicesPtr, CurrentFaceIndex * 3 + 2, Bits, IsLocal) +
+			uint32 Face3Offset = FindFaceIndex(MemoryReader, IndicesPtr, CurrentFaceIndex * 3 + 2, Bits, IsLocal) +
 				FaceIndex;
 
-			InFacesArr[0] = ProcessInstance->ReadMemory<uint16>(Indices + Face1Offset * 2, IsLocal);
-			InFacesArr[1] = ProcessInstance->ReadMemory<uint16>(Indices + Face2Offset * 2, IsLocal);
-			InFacesArr[2] = ProcessInstance->ReadMemory<uint16>(Indices + Face3Offset * 2, IsLocal);
+			MemoryReader->ReadMemory<uint16>(Indices + Face1Offset * 2, InFacesArr[0], IsLocal);
+			MemoryReader->ReadMemory<uint16>(Indices + Face2Offset * 2, InFacesArr[1], IsLocal);
+			MemoryReader->ReadMemory<uint16>(Indices + Face3Offset * 2, InFacesArr[2], IsLocal);
 			return true;
 		}
 		CurrentFaceIndex -= Count;
 	}
-	return false;*/
+	return false;
+}
+
+void FCoDMeshHelper::UnpackCoDQTangent(const uint32 Packed, FVector3f& Tangent, FVector3f& Normal)
+{
+	uint32 Idx = Packed >> 30;
+
+	float TX = ((Packed >> 00 & 0x3FF) / 511.5f - 1.0f) / 1.4142135f;
+	float TY = ((Packed >> 10 & 0x3FF) / 511.5f - 1.0f) / 1.4142135f;
+	float TZ = ((Packed >> 20 & 0x1FF) / 255.5f - 1.0f) / 1.4142135f;
+	float TW = 0.0f;
+	float Sum = TX * TX + TY * TY + TZ * TZ;
+
+	if (Sum <= 1.0f) TW = FMath::Sqrt(1.0f - Sum);
+
+	float QX = 0.0f;
+	float QY = 0.0f;
+	float QZ = 0.0f;
+	float QW = 0.0f;
+
+	auto SetVal = [&QX,&QY,&QW,&QZ](float& B1, float& B2, float& B3, float& B4)
+	{
+		QX = B1;
+		QY = B2;
+		QZ = B3;
+		QW = B4;
+	};
+
+	switch (Idx)
+	{
+	case 0:
+		SetVal(TW, TX, TY, TZ);
+		break;
+	case 1:
+		SetVal(TX, TW, TY, TZ);
+		break;
+	case 2:
+		SetVal(TX, TY, TW, TZ);
+		break;
+	case 3:
+		SetVal(TX, TY, TZ, TW);
+		break;
+	default:
+		break;
+	}
+
+	Tangent = FVector3f(1 - 2 * (QY * QY + QZ * QZ), 2 * (QX * QY + QW * QZ), 2 * (QX * QZ - QW * QY));
+
+	FVector3f Bitangent(2 * (QX * QY - QW * QZ), 1 - 2 * (QX * QX + QZ * QZ), 2 * (QY * QZ + QW * QX));
+
+	Normal = Tangent.Cross(Bitangent);
 }
 
 FVector4 VectorPacking::QuatPackingA(const uint64 PackedData)

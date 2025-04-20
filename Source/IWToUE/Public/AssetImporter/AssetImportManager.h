@@ -32,7 +32,7 @@ public:
 
 	//--- 导入 ---
 
-	void ImportSelection(FString ImportPath, TArray<TSharedPtr<FCoDAsset>> Selection, FString OptionalParams);
+	bool ImportSelection(FString ImportPath, TArray<TSharedPtr<FCoDAsset>> Selection, FString OptionalParams);
 
 	FOnAssetInitCompletedDelegate OnAssetInitCompletedDelegate;
 	FOnAssetLoadingDelegate OnAssetLoadingDelegate;

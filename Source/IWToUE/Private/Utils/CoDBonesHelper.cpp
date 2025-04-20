@@ -1,12 +1,13 @@
 ﻿#include "Utils/CoDBonesHelper.h"
 
 #include "CastManager/CastModel.h"
+#include "Interface/IMemoryReader.h"
 #include "WraithX/GameProcess.h"
 
-void CoDBonesHelper::ReadXModelBones(TSharedPtr<FGameProcess> ProcessInstance, FWraithXModel& BaseModel,
+void CoDBonesHelper::ReadXModelBones(TSharedPtr<IMemoryReader>& MemoryReader, const FWraithXModel& BaseModel,
                                      FWraithXModelLod& ModelLod, FCastModelInfo& ResultModel)
 {
-	/*// 获取骨骼信息
+	// 获取骨骼信息
 	uint32 BoneCount = BaseModel.BoneCount + BaseModel.CosmeticBoneCount;
 
 	// TODO 加载不同模型骨骼
@@ -25,25 +26,25 @@ void CoDBonesHelper::ReadXModelBones(TSharedPtr<FGameProcess> ProcessInstance, F
 	// 预处理
 	uint64 ChildBoneSize = BoneCount - BaseModel.RootBoneCount;
 
-	// TArray<uint32> BoneHashArray;
-	// ProcessInstance->ReadArray(BaseModel.BoneIDsPtr, BoneHashArray, BaseModel.BoneCount);
+	TArray<uint32> BoneHashArray;
+	MemoryReader->ReadArray(BaseModel.BoneIDsPtr, BoneHashArray, BaseModel.BoneCount);
 	BoneIndexVariant BoneHashVariant;
-	ReadBoneVariantInfo(ProcessInstance, BaseModel.BoneIDsPtr, BoneCount, BaseModel.BoneIndexSize, BoneHashVariant);
+	ReadBoneVariantInfo(MemoryReader, BaseModel.BoneIDsPtr, BoneCount, BaseModel.BoneIndexSize, BoneHashVariant);
 
-	// TArray<uint16> BoneParentArray;
-	// ProcessInstance->ReadArray(BaseModel.BoneParentsPtr, BoneParentArray, ChildBoneSize);
+	TArray<uint16> BoneParentArray;
+	MemoryReader->ReadArray(BaseModel.BoneParentsPtr, BoneParentArray, ChildBoneSize);
 	BoneIndexVariant BoneParentVariant;
-	ReadBoneVariantInfo(ProcessInstance, BaseModel.BoneParentsPtr, ChildBoneSize, BaseModel.BoneParentSize,
+	ReadBoneVariantInfo(MemoryReader, BaseModel.BoneParentsPtr, ChildBoneSize, BaseModel.BoneParentSize,
 	                    BoneParentVariant);
 
 	TArray<FCastBoneTransform> BoneGlobalTransformArray;
-	ProcessInstance->ReadArray(BaseModel.BaseTransformPtr, BoneGlobalTransformArray, BaseModel.BoneCount);
+	MemoryReader->ReadArray(BaseModel.BaseTransformPtr, BoneGlobalTransformArray, BaseModel.BoneCount);
 	TArray<FVector3f> BoneLocalTranslationArray;
 	static_assert(sizeof(FVector3f) == 12, "FVector3f must be 12 bytes!");
-	ProcessInstance->ReadArray(BaseModel.TranslationsPtr, BoneLocalTranslationArray, ChildBoneSize);
+	MemoryReader->ReadArray(BaseModel.TranslationsPtr, BoneLocalTranslationArray, ChildBoneSize);
 	TArray<FVector4f> BoneLocalRotationArray;
 	static_assert(sizeof(FVector4f) == 16, "FVector4f must be 16 bytes!");
-	ProcessInstance->ReadArray(BaseModel.RotationsPtr, BoneLocalRotationArray, ChildBoneSize);
+	MemoryReader->ReadArray(BaseModel.RotationsPtr, BoneLocalRotationArray, ChildBoneSize);
 
 	for (uint32 BoneIdx = 0; BoneIdx < BaseModel.BoneCount; ++BoneIdx)
 	{
@@ -51,9 +52,9 @@ void CoDBonesHelper::ReadXModelBones(TSharedPtr<FGameProcess> ProcessInstance, F
 
 		// 骨骼名
 		uint32 BoneNameHash;
-		auto HashVisitor = [&](auto& BoneHashArray)
+		auto HashVisitor = [&](auto& InBoneHashArray)
 		{
-			BoneNameHash = BoneHashArray[BoneIdx];
+			BoneNameHash = InBoneHashArray[BoneIdx];
 		};
 		Visit(HashVisitor, BoneHashVariant);
 
@@ -115,46 +116,34 @@ void CoDBonesHelper::ReadXModelBones(TSharedPtr<FGameProcess> ProcessInstance, F
 			Bone.LocalPosition = Bone.WorldPosition;
 			Bone.LocalRotation = Bone.WorldRotation;
 		}
-	}*/
+	}
 }
 
-void CoDBonesHelper::ReadBoneVariantInfo(TSharedPtr<FGameProcess> ProcessInstance, const uint64& ReadAddr,
+void CoDBonesHelper::ReadBoneVariantInfo(TSharedPtr<IMemoryReader>& MemoryReader, const uint64& ReadAddr,
                                          uint64 BoneLen, int32 BoneIndexSize, BoneIndexVariant& OutBoneParentVariant)
 {
-	/*switch (BoneIndexSize)
+	switch (BoneIndexSize)
 	{
 	case 1:
 		{
 			OutBoneParentVariant.Emplace<TArray<uint8>>();
-			ProcessInstance->ReadArray<uint8>(
-				ReadAddr,
-				OutBoneParentVariant.Get<TArray<uint8>>(),
-				BoneLen
-			);
+			MemoryReader->ReadArray<uint8>(ReadAddr, OutBoneParentVariant.Get<TArray<uint8>>(), BoneLen);
 			break;
 		}
 	case 2:
 		{
 			OutBoneParentVariant.Emplace<TArray<uint16>>();
-			ProcessInstance->ReadArray<uint16>(
-				ReadAddr,
-				OutBoneParentVariant.Get<TArray<uint16>>(),
-				BoneLen
-			);
+			MemoryReader->ReadArray<uint16>(ReadAddr, OutBoneParentVariant.Get<TArray<uint16>>(), BoneLen);
 			break;
 		}
 	case 4:
 		{
 			OutBoneParentVariant.Emplace<TArray<uint32>>();
-			ProcessInstance->ReadArray<uint32>(
-				ReadAddr,
-				OutBoneParentVariant.Get<TArray<uint32>>(),
-				BoneLen
-			);
+			MemoryReader->ReadArray<uint32>(ReadAddr, OutBoneParentVariant.Get<TArray<uint32>>(), BoneLen);
 			break;
 		}
 	default:
 		UE_LOG(LogTemp, Error, TEXT("Unsupported BoneIndexSize: %d"), BoneIndexSize);
 		break;
-	}*/
+	}
 }

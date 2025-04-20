@@ -74,6 +74,8 @@ public:
 	bool IsInitialized() const { return bIsInitialized; }
 	bool IsGameRunning();
 
+	TSharedPtr<IMemoryReader>& GetMemoryReader() { return MemoryReader; }
+
 	// --- Asset Loading ---
 	void StartAssetDiscovery();
 	bool IsDiscoveringAssets() const { return bIsDiscovering; }
@@ -151,41 +153,3 @@ private:
 
 	friend class FAssetDiscoveryTask;
 };
-
-
-/*
-template <typename TAssetType, typename TCoDType>
-void FGameProcess::ProcessGenericAsset(FXAsset64 AssetNode, const TCHAR* AssetPrefix,
-                                       TFunction<void(const TAssetType&, TSharedPtr<TCoDType>)> Customizer)
-{
-	TAssetType Asset = ReadMemory<TAssetType>(AssetNode.Header);
-	Asset.Hash &= 0xFFFFFFFFFFFFFFF;
-
-	FCoDAssetDatabase::Get().QueryValueAsync(
-		Asset.Hash,
-		[this, Asset,Header = AssetNode.Header,Temp = AssetNode.Temp,
-			Prefix = FString(AssetPrefix),Customizer = MoveTemp(Customizer)](
-		const FString& QueryName)
-		{
-			TSharedPtr<TCoDType> LoadedAsset = MakeShared<TCoDType>();
-			LoadedAsset->AssetName = QueryName.IsEmpty()
-				                         ? FString::Format(TEXT("{0}_{1:x}"), {
-					                                           Prefix, Asset.Hash
-				                                           })
-				                         : QueryName;
-			LoadedAsset->AssetPointer = Header;
-			LoadedAsset->AssetStatus = EWraithAssetStatus::Loaded;
-
-			if constexpr (TIsSame<TCoDType, FCoDAnim>::Value)
-			{
-				LoadedAsset->AssetStatus = Temp == 1
-					                           ? EWraithAssetStatus::Placeholder
-					                           : EWraithAssetStatus::Loaded;
-			}
-
-			Customizer(Asset, LoadedAsset);
-			AddAssetToCollection(LoadedAsset);
-			LoadingProgressAdd();
-		});
-}
-*/
