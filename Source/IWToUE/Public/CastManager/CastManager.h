@@ -17,10 +17,11 @@ public:
 
 	bool Initialize(FString InFilePath);
 	bool Import();
+	void ReleaseScene();
 
 	void Destroy();
 
-	TUniquePtr<FCastScene> Scene{nullptr};
+	TSharedPtr<FCastScene> Scene{nullptr};
 
 	int32 GetBoneNum() const;
 	int32 GetVertexNum() const;

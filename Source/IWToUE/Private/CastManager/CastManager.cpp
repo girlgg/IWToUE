@@ -26,7 +26,7 @@ bool FCastManager::Initialize(FString InFilePath)
 
 bool FCastManager::Import()
 {
-	Scene = MakeUnique<FCastScene>();
+	Scene = MakeShared<FCastScene>();
 	if (!Scene) return false;
 
 	auto& [Magic, Version, RootNodes, Flags] = Scene->Header;
@@ -49,6 +49,11 @@ bool FCastManager::Import()
 	}
 
 	return true;
+}
+
+void FCastManager::ReleaseScene()
+{
+	Scene.Reset();
 }
 
 void FCastManager::Destroy()

@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include "CastManager/CastImportOptions.h"
 #include "Widgets/CastImportUI.h"
 #include "CastManager/CastManager.h"
 #include "CastManager/CastModel.h"
@@ -41,28 +42,6 @@ namespace CastScene
 		bool bMapMorphTargetToTimeZero;
 	};
 }
-
-struct FCastImportOptions
-{
-	UPhysicsAsset* PhysicsAsset{nullptr};
-	USkeleton* Skeleton{nullptr};
-
-	FString GlobalMaterialPath;
-	FString TextureFormat;
-
-	bool bImportMaterial;
-	ECastTextureImportType TexturePathType;
-	bool bImportAsSkeletal;
-	bool bImportMesh;
-	bool bImportAnimations;
-	bool bImportAnimationNotify;
-	bool bDeleteRootNodeAnim;
-	bool bReverseFace;
-	ECastAnimImportType AnimImportType;
-	bool bConvertRefPosition;
-	bool bConvertRefAnim;
-	ECastMaterialType MaterialType;
-};
 
 struct FCastMaterial
 {
@@ -181,7 +160,7 @@ protected:
 	            const uint32& CurrentKey, const uint32& EndKey, const T& LastValue, const T& EndValue);
 
 public:
-	FCastImportOptions* ImportOptions;
+	TSharedPtr<FCastImportOptions> ImportOptions;
 	FCastSceneInfo SceneInfo;
 	FString FileBasePath;
 

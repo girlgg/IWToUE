@@ -33,7 +33,7 @@ TSharedPtr<FCastImporter> FCastImporter::StaticInstance;
 
 FCastImporter::FCastImporter()
 {
-	ImportOptions = new FCastImportOptions();
+	ImportOptions = MakeShared<FCastImportOptions>();
 	FMemory::Memzero(*ImportOptions);
 
 	CurPhase = NOTSTARTED;
@@ -61,7 +61,6 @@ void FCastImporter::CleanUp()
 {
 	ReleaseScene();
 
-	delete ImportOptions;
 	ImportOptions = nullptr;
 }
 
@@ -291,7 +290,7 @@ void FCastImporter::AnalysisMaterial(const FString& ParentPath, FString Material
 					{
 						if (FCastSettingInfo CodSetting;
 							AnalysisSetting(CodSetting,
-								SettingsContent[LineIndex]))
+							                SettingsContent[LineIndex]))
 						{
 							Material.Settings.Add(CodSetting);
 						}
@@ -400,11 +399,11 @@ bool FCastImporter::AnalysisSetting(FCastSettingInfo& Setting, FString SettingLi
 
 	// Setting Type Map
 	static const TMap<FString, ESettingType> TypeMap = {
-	{TEXT("Color"), ESettingType::Color},
-	{TEXT("Float4"), ESettingType::Float4},
-	{TEXT("Float3"), ESettingType::Float3},
-	{TEXT("Float2"), ESettingType::Float2},
-	{TEXT("Float1"), ESettingType::Float1}
+		{TEXT("Color"), ESettingType::Color},
+		{TEXT("Float4"), ESettingType::Float4},
+		{TEXT("Float3"), ESettingType::Float3},
+		{TEXT("Float2"), ESettingType::Float2},
+		{TEXT("Float1"), ESettingType::Float1}
 	};
 
 	const ESettingType* SettingType = TypeMap.Find(LineParts[0]);
@@ -413,7 +412,7 @@ bool FCastImporter::AnalysisSetting(FCastSettingInfo& Setting, FString SettingLi
 	switch (Setting.Type)
 	{
 	case Color:
-	case Float4:	
+	case Float4:
 
 		Setting.Value = FVector4(
 			FCString::Atof(*LineParts[2]),
@@ -422,7 +421,7 @@ bool FCastImporter::AnalysisSetting(FCastSettingInfo& Setting, FString SettingLi
 			FCString::Atof(*LineParts[5])
 		);
 		break;
-	
+
 	case Float3:
 
 		Setting.Value = FVector4(
@@ -432,8 +431,8 @@ bool FCastImporter::AnalysisSetting(FCastSettingInfo& Setting, FString SettingLi
 			0
 		);
 		break;
-	
-	case Float2:	
+
+	case Float2:
 
 		Setting.Value = FVector4(
 			FCString::Atof(*LineParts[2]),
@@ -442,7 +441,7 @@ bool FCastImporter::AnalysisSetting(FCastSettingInfo& Setting, FString SettingLi
 			0
 		);
 		break;
-	
+
 	case Float1:
 
 		Setting.Value = FVector4(
@@ -452,7 +451,7 @@ bool FCastImporter::AnalysisSetting(FCastSettingInfo& Setting, FString SettingLi
 			0
 		);
 		break;
-	
+
 	default:
 		return false;
 	}
@@ -463,7 +462,6 @@ bool FCastImporter::AnalysisSetting(FCastSettingInfo& Setting, FString SettingLi
 bool FCastImporter::ImportTexture(FCastTextureInfo& Texture, const FString& FilePath, const FString& ParentPath,
                                   bool bSRGB)
 {
-
 	FString TexturePath = FPaths::Combine(*ParentPath, TEXT("Materials"), TEXT("Textures"),
 	                                      FPaths::GetCleanFilename(FPaths::GetPath(FilePath)));
 
@@ -489,7 +487,7 @@ bool FCastImporter::ImportTexture(FCastTextureInfo& Texture, const FString& File
 		FName(NoIllegalSigns(*FPaths::GetBaseFilename(FilePath))),
 		RF_Standalone | RF_Public,
 		FilePath,
-		nullptr,  // Parms
+		nullptr, // Parms
 		GWarn,
 		bOutOperationCanceled
 	);
@@ -551,14 +549,14 @@ bool FCastImporter::ImportTexture(FCastTextureInfo& Texture, const FString& File
 		{
 			ImportedTexture->CompressionSettings = TC_Masks;
 		}
-		    // IW8
+		// IW8
 		else if (Texture.TextureType == "unk_semantic_0x9" ||
 			Texture.TextureType == "unk_semantic_0xA" ||
 			// IW9/JUP
-			Texture.TextureType == "unk_semantic_0x4" || 
-			Texture.TextureType == "unk_semantic_0x5" || 
+			Texture.TextureType == "unk_semantic_0x4" ||
+			Texture.TextureType == "unk_semantic_0x5" ||
 			// T10
-			Texture.TextureType == "unk_semantic_0x58" || 
+			Texture.TextureType == "unk_semantic_0x58" ||
 			Texture.TextureType == "unk_semantic_0x65")
 		{
 			ImportedTexture->CompressionSettings = TC_Default;
@@ -587,10 +585,10 @@ UMaterialInterface* FCastImporter::CreateMaterialInstance(const FCastMaterialInf
 	const auto MaterialInstanceFactory = NewObject<UMaterialInstanceConstantFactoryNew>();
 
 	FString MaterialPath;
-	if (ImportOptions->MaterialType == ECastMaterialType::CastMT_T7)
-	{
-		MaterialPath = FPaths::Combine("/UGC4579750/black_ops_2/Shading/T7/TechSets", Material.TechSet);
-	}
+	// if (ImportOptions->MaterialType == ECastMaterialType::CastMT_T7)
+	// {
+		// MaterialPath = FPaths::Combine("/UGC4579750/black_ops_2/Shading/T7/TechSets", Material.TechSet);
+	// }
 	if (ImportOptions->MaterialType == ECastMaterialType::CastMT_IW8)
 	{
 		for (const auto Texture : Material.Textures)
@@ -734,18 +732,25 @@ UMaterialInterface* FCastImporter::CreateMaterialInstance(const FCastMaterialInf
 
 		case Float2:
 
-			MaterialInstance->SetVectorParameterValueEditorOnly(ParameterInfo, FLinearColor(Setting.Value.X, Setting.Value.Y, 0, 0));
+			MaterialInstance->SetVectorParameterValueEditorOnly(ParameterInfo,
+			                                                    FLinearColor(Setting.Value.X, Setting.Value.Y, 0, 0));
 			break;
 
 		case Float3:
 
-			MaterialInstance->SetVectorParameterValueEditorOnly(ParameterInfo, FLinearColor(Setting.Value.X, Setting.Value.Y, Setting.Value.Z, 0));
+			MaterialInstance->SetVectorParameterValueEditorOnly(ParameterInfo,
+			                                                    FLinearColor(
+				                                                    Setting.Value.X, Setting.Value.Y, Setting.Value.Z,
+				                                                    0));
 			break;
 
 		case Color:
 		case Float4:
 
-			MaterialInstance->SetVectorParameterValueEditorOnly(ParameterInfo, FLinearColor(Setting.Value.X, Setting.Value.Y, Setting.Value.Z, Setting.Value.W));
+			MaterialInstance->SetVectorParameterValueEditorOnly(ParameterInfo,
+			                                                    FLinearColor(
+				                                                    Setting.Value.X, Setting.Value.Y, Setting.Value.Z,
+				                                                    Setting.Value.W));
 			break;
 		}
 	}
@@ -818,7 +823,7 @@ FString FCastImporter::MakeName(const FString& Name)
 
 FCastImportOptions* FCastImporter::GetImportOptions() const
 {
-	return ImportOptions;
+	return ImportOptions.Get();
 }
 
 FCastImportOptions* FCastImporter::GetImportOptions(
@@ -878,7 +883,7 @@ FCastImportOptions* FCastImporter::GetImportOptions(
 
 		ImportOptions->PhysicsAsset = ImportUI->PhysicsAsset;
 		ImportOptions->Skeleton = ImportUI->Skeleton;
-		ImportOptions->bImportMaterial = ImportUI->bMaterials;
+		ImportOptions->bImportMaterial = ImportUI->bImportMaterial;
 		ImportOptions->TexturePathType = ImportUI->TexturePathType;
 		ImportOptions->GlobalMaterialPath = ImportUI->GlobalMaterialPath;
 		ImportOptions->TextureFormat = ImportUI->TextureFormat;
@@ -895,11 +900,11 @@ FCastImportOptions* FCastImporter::GetImportOptions(
 		if (CastOptionWindow->ShouldImport())
 		{
 			bOutImportAll = CastOptionWindow->ShouldImportAll();
-			return ImportOptions;
+			return ImportOptions.Get();
 		}
 		OutOperationCanceled = true;
 	}
-	return ImportOptions;
+	return ImportOptions.Get();
 }
 
 USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshArgs& ImportSkeletalMeshArgs)
@@ -1711,7 +1716,8 @@ void FCastImporter::FinalizeController(IAnimationDataController& Controller, UAn
 
 FString FCastImporter::NoIllegalSigns(const FString& InString)
 {
-	return InString.Replace(TEXT("~"), TEXT("_")).Replace(TEXT("$"), TEXT("_")).Replace(TEXT("&"), TEXT("_")).Replace(TEXT("#"), TEXT("_"));
+	return InString.Replace(TEXT("~"), TEXT("_")).Replace(TEXT("$"), TEXT("_")).Replace(TEXT("&"), TEXT("_")).Replace(
+		TEXT("#"), TEXT("_"));
 }
 
 #undef LOCTEXT_NAMESPACE

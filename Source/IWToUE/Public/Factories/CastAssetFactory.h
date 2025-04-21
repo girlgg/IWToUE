@@ -5,6 +5,9 @@
 #include "Utils/CastImporter.h"
 #include "CastAssetFactory.generated.h"
 
+class FCastToUnrealConverter;
+class ICastImportUIHandler;
+class FCastReader;
 class FLargeMemoryReader;
 
 #define RETURN_IF_PASS(condition, message) \
@@ -33,9 +36,6 @@ class IWTOUE_API UCastAssetFactory : public UFactory
 	GENERATED_BODY()
 
 public:
-	UPROPERTY()
-	TObjectPtr<class UCastImportUI> ImportUI;
-
 	UCastAssetFactory(const FObjectInitializer& ObjectInitializer);
 
 	//~ UObject Interface
@@ -43,7 +43,9 @@ public:
 	//~ End of UObject Interface
 
 	//~ Begin UFactor Interface
+	virtual bool ConfigureProperties() override;
 	virtual bool DoesSupportClass(UClass* Class) override;
+	virtual FText GetDisplayName() const override;
 	virtual UClass* ResolveSupportedClass() override;
 	UObject* HandleExistingAsset(UObject* InParent, FName InName, const FString& InFilename);
 	static void HandleMaterialImport(FString&& ParentPath, const FString& InFilename, FCastImporter* CastImporter,
@@ -62,7 +64,24 @@ protected:
 	FText GetImportTaskText(const FText& TaskText) const;
 
 private:
+	void InitializeDependencies();
+	void SaveCreatedPackages(const TArray<UObject*>& CreatedObjects);
+	UObject* HandleImportFailure(const FString& ErrorMessage, UFactory* Factory, FFeedbackContext* Warn,
+	                             bool& bOutOperationCanceled);
+
+public:
+	UPROPERTY()
+	TObjectPtr<UCastImportUI> ImportUI;
+
+private:
+	FCastImportOptions ImportOptions;
+
+	TSharedPtr<FCastReader> Reader;
+	TSharedPtr<FCastToUnrealConverter> Converter;
+	TSharedPtr<ICastImportUIHandler> UIHandler;
+
 	bool bShowOption;
 	bool bDetectImportTypeOnImport;
 	bool bOperationCanceled;
+	bool bImportAll = false;
 };

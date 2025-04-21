@@ -15,7 +15,7 @@ enum class ECastImportType : uint8
 UENUM(BlueprintType)
 enum class ECastMaterialType : uint8
 {
-	CastMT_T7 UMETA(DisplayName = "T7 Engine"),
+	// CastMT_T7 UMETA(DisplayName = "T7 Engine"),
 	CastMT_IW8 UMETA(DisplayName = "IW8 Engine"),
 	CastMT_IW9 UMETA(DisplayName = "IW9/JUP Engine"),
 	CastMT_T10 UMETA(DisplayName = "T10 Engine")
@@ -37,65 +37,67 @@ enum class ECastTextureImportType : uint8
 	CastTIT_GlobalImages UMETA(DisplayName="GlobalImages/Image")
 };
 
-UCLASS(BlueprintType, config=EditorPerProjectUserSettings, AutoExpandCategories=(FTransform), HideCategories=Object,
-	MinimalAPI)
+UCLASS(BlueprintType, AutoExpandCategories=(FTransform), HideCategories=Object, MinimalAPI,
+	Config = EditorPerProjectUserSettings)
 class UCastImportUI : public UObject
 {
 	GENERATED_BODY()
 
-public:	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh, meta=(ImportType="SkeletalMesh|SkeletalMesh"))
-	TObjectPtr<class USkeleton> Skeleton{nullptr};
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh,
+		meta = (EditCondition = "bImportAsSkeletal || bImportAnimations", AllowedClasses = "/Script/Engine.Skeleton"))
+	TObjectPtr<USkeleton> Skeleton = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mesh,
-		meta = (ImportType = "StaticMesh|SkeletalMesh", DisplayName="As Skeletal Mesh"))
-	bool bImportAsSkeletal{true};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh,
+		meta = (DisplayName="As Skeletal Mesh", EditCondition = "bImportMesh"))
+	bool bImportAsSkeletal = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh, meta=(ImportType="SkeletalMesh"))
-	bool bImportMesh{true};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh)
+	bool bImportMesh = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh, meta=(ImportType="SkeletalMesh", EditCondition="bImportMesh"))
-	bool bReverseFace{false};
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, config, Category=Mesh,
-		meta=(ImportType="SkeletalMesh"))
-	bool bPhysicsAsset{true};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh, meta=(EditCondition="bImportMesh"))
+	bool bReverseFace = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category=Mesh,
-		meta=(ImportType="SkeletalMesh", EditCondition="bPhysicsAsset"))
-	TObjectPtr<class UPhysicsAsset> PhysicsAsset{nullptr};
+		meta=(EditCondition = "bImportAsSkeletal"))
+	bool bPhysicsAsset{true};
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category=Animation, meta=(ImportType="SkeletalMesh|Animation"))
-	bool bImportAnimations{true};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Mesh,
+		meta = (EditCondition = "bPhysicsAsset", AllowedClasses = "/Script/Engine.PhysicsAsset"))
+	TObjectPtr<UPhysicsAsset> PhysicsAsset = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category=Animation, meta=(ImportType="SkeletalMesh|Animation", EditCondition="bImportAnimations"))
-	bool bImportAnimationNotify{true};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Animation)
+	bool bImportAnimations = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category=Animation, meta=(ImportType="SkeletalMesh|Animation", EditCondition="bImportAnimations"))
-	bool bDeleteRootNodeAnim{false};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Animation,
+		meta=(EditCondition="bImportAnimations"))
+	bool bImportAnimationNotify = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category=Animation, meta=(ImportType="SkeletalMesh|Animation", EditCondition="bImportAnimations"))
-	bool bConvertRefPosition{true};
-	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category=Animation, meta=(ImportType="SkeletalMesh|Animation", EditCondition="bImportAnimations"))
-	bool bConvertRefAnim{true};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Animation,
+		meta=(EditCondition="bImportAnimations"))
+	bool bDeleteRootNodeAnim = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category = Material, meta=(ImportType="GeoOnly"))
-	bool bMaterials{true};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Animation,
+		meta=(EditCondition="bImportAnimations"))
+	bool bConvertRefPosition = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category = Material, meta=(ImportType="GeoOnly", EditCondition="bMaterials"))
-	ECastMaterialType MaterialType{ECastMaterialType::CastMT_IW9};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Animation,
+		meta=(EditCondition="bImportAnimations"))
+	bool bConvertRefAnim = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category = Material,
-		meta=(ImportType="GeoOnly", EditCondition="bMaterials"))
-	ECastTextureImportType TexturePathType{ECastTextureImportType::CastTIT_Default};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Material)
+	bool bImportMaterial = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category = Material,
-		meta=(ImportType="GeoOnly", EditCondition="TexturePathType!=ECastTextureImportType::CastTIT_Default"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Material, meta=(EditCondition="bImportMaterial"))
+	ECastMaterialType MaterialType = ECastMaterialType::CastMT_IW9;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Material, meta=(EditCondition="bImportMaterial"))
+	ECastTextureImportType TexturePathType = ECastTextureImportType::CastTIT_Default;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Material,
+		meta = (EditCondition = "TexturePathType != ECastTextureImportType::CastTIT_Default"))
 	FString GlobalMaterialPath;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config, Category = Material, meta=(ImportType="GeoOnly"))
-	FString TextureFormat{"png"};
-
-	void ResetToDefault();
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Material)
+	FString TextureFormat = TEXT("png");
 };

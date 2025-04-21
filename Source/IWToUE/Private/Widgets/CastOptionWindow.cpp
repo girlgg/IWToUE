@@ -145,7 +145,7 @@ bool SCastOptionWindow::CanImport() const
 
 FReply SCastOptionWindow::OnResetToDefaultClick() const
 {
-	ImportUI->ResetToDefault();
+	// ImportUI->ResetToDefault();
 	DetailsView->SetObject(ImportUI, true);
 	return FReply::Handled();
 }

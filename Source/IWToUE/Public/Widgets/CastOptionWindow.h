@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "CastImportUI.h"
+#include "CastManager/CastImportOptions.h"
 
 
 class SCastOptionWindow final : public SCompoundWidget
@@ -83,7 +84,7 @@ private:
 	bool CanImport() const;
 	FReply OnResetToDefaultClick() const;
 	FText GetImportTypeDisplayText() const;
-	
+
 	UCastImportUI* ImportUI;
 	TSharedPtr<IDetailsView> DetailsView;
 	TWeakPtr<SWindow> WidgetWindow;
