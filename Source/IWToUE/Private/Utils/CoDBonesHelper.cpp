@@ -1,6 +1,7 @@
 ﻿#include "Utils/CoDBonesHelper.h"
 
 #include "CastManager/CastModel.h"
+#include "Database/CoDDatabaseService.h"
 #include "Interface/IMemoryReader.h"
 #include "WraithX/GameProcess.h"
 
@@ -8,7 +9,7 @@ void CoDBonesHelper::ReadXModelBones(TSharedPtr<IMemoryReader>& MemoryReader, co
                                      FWraithXModelLod& ModelLod, FCastModelInfo& ResultModel)
 {
 	// 获取骨骼信息
-	uint32 BoneCount = BaseModel.BoneCount + BaseModel.CosmeticBoneCount;
+	uint32 BoneCount = BaseModel.BoneCount;
 
 	// TODO 加载不同模型骨骼
 	if (!ResultModel.Skeletons.IsEmpty())
@@ -58,7 +59,7 @@ void CoDBonesHelper::ReadXModelBones(TSharedPtr<IMemoryReader>& MemoryReader, co
 		};
 		Visit(HashVisitor, BoneHashVariant);
 
-		FCoDAssetDatabase::Get().AssetName_QueryValueRetName(BoneNameHash, Bone.BoneName, "bone");
+		Bone.BoneName = FCoDDatabaseService::Get().GetPrintfAssetName(BoneNameHash,"bone");
 
 		// 骨骼父节点
 		if (BoneIdx >= BaseModel.RootBoneCount)

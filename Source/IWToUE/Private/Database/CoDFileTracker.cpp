@@ -429,12 +429,16 @@ bool FCoDFileTracker::CheckIfFileNeedsUpdate(uint64 GameHash, const FString& Rel
 		FileMetaRepo->InsertOrUpdateFile(GameHash, RelativePath, NewContentHash, NewLastModifiedTime, OutFileId);
 		return true;
 	}
-	TOptional<int64> NewFileId = FileMetaRepo->InsertOrUpdateFile(GameHash, RelativePath, NewContentHash,
-	                                                              NewLastModifiedTime);
-	if (NewFileId.IsSet())
+	if (FileMetaRepo->InsertOrUpdateFile(GameHash, RelativePath, NewContentHash,
+	                                     NewLastModifiedTime))
 	{
-		OutFileId = NewFileId.GetValue();
-		return true;
+		TOptional<IFileMetaRepository::FExistingFileInfo> NewInfo =
+			FileMetaRepo->QueryFileInfo(GameHash, RelativePath);
+		if (NewInfo.IsSet())
+		{
+			OutFileId = NewInfo->FileId;
+			return true;
+		}
 	}
 	UE_LOG(LogTemp, Error, TEXT("Failed to insert FileMeta for %s"), *RelativePath);
 	OutFileId = -1;

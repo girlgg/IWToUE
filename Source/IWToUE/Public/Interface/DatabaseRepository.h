@@ -24,7 +24,7 @@ class IFileMetaRepository
 {
 public:
 	virtual ~IFileMetaRepository() = default;
-	virtual TOptional<int64> InsertOrUpdateFile(uint64 GameHash, const FString& RelativePath, uint64 ContentHash,
+	virtual bool InsertOrUpdateFile(uint64 GameHash, const FString& RelativePath, uint64 ContentHash,
 	                                            int64 LastModifiedTime, int64 KnownFileId = -1) = 0;
 
 	struct FExistingFileInfo

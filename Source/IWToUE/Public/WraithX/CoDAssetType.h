@@ -192,50 +192,51 @@ struct FCoDSound : public FCoDAsset
 
 struct FWraithXModelSubmesh
 {
+	uint64 MaterialHash;
 	// Count of rigid vertex pairs
-	uint32 VertListcount;
+	uint32 VertListcount = 0;
 	// A pointer to rigid weights
-	uint64 RigidWeightsPtr;
+	uint64 RigidWeightsPtr = 0;
 
 	// Count of verticies
-	uint32 VertexCount;
+	uint32 VertexCount = 0;
 	// Count of faces
-	uint32 FaceCount;
+	uint32 FaceCount = 0;
 	// Count of packed index tables
-	uint32 PackedIndexTableCount;
+	uint32 PackedIndexTableCount = 0;
 
 	// Pointer to faces
-	uint64 FacesOffset;
+	uint64 FacesOffset = 0;
 	// Pointer to verticies
-	uint64 VertexOffset;
+	uint64 VertexOffset = 0;
 	// Pointer to verticies
-	uint64 VertexTangentOffset;
+	uint64 VertexTangentOffset = 0;
 	// Pointer to UVs
-	uint64 VertexUVsOffset;
+	uint64 VertexUVsOffset = 0;
 	// Pointer to vertex colors
-	uint64 VertexColorOffset;
+	uint64 VertexColorOffset = 0;
 	// Pointer to packed index table
-	uint64 PackedIndexTableOffset;
+	uint64 PackedIndexTableOffset = 0;
 	// Pointer to packed index buffer
-	uint64 PackedIndexBufferOffset;
+	uint64 PackedIndexBufferOffset = 0;
 
 	// A list of weights
-	uint16 WeightCounts[8];
+	uint16 WeightCounts[8] = {};
 	// A pointer to weight data
-	uint64 WeightsOffset;
+	uint64 WeightsOffset = 0;
 	// A pointer to blendshapes data
-	uint64 BlendShapesPtr;
+	uint64 BlendShapesPtr = 0;
 
 	// Submesh Scale
-	float Scale;
+	float Scale = 1;
 
 	// Submesh Offset
-	float XOffset;
-	float YOffset;
-	float ZOffset;
+	float XOffset = 0;
+	float YOffset = 0;
+	float ZOffset = 0;
 
 	// The index of the material
-	int32 MaterialIndex;
+	int32 MaterialIndex = -1;
 };
 
 struct FWraithXMaterialSetting
@@ -268,10 +269,13 @@ struct FWraithXImage
 
 	// The name of this image asset
 	FString ImageName;
+
+	UTexture2D* ImageObject = nullptr;
 };
 
 struct FWraithXMaterial
 {
+	uint64 MaterialHash;
 	// The material name
 	FString MaterialName;
 	// The techset name
@@ -486,7 +490,7 @@ struct FCastBoneTransform
 	float TranslationWeight; // 4 bytes
 };
 
-enum class ESoundDataTypes
+enum class ESoundDataTypes : uint8
 {
 	Wav_WithHeader,
 	Wav_NeedsHeader,
@@ -501,6 +505,9 @@ struct FWraithXSound
 	TArray<uint8> Data;
 	uint32 DataSize;
 	ESoundDataTypes DataType;
+	uint32 FrameCount;
+	uint32 FrameRate;
+	uint8 ChannelCount;
 };
 
 #undef LOCTEXT_NAMESPACE

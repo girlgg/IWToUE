@@ -140,11 +140,11 @@ void FWraithX::ImportImage(FString ImportPath, TSharedPtr<FCoDAsset> Asset)
 	}
 	if (!ImageData.IsEmpty())
 	{
-		UTexture2D* Texture = FCoDAssetHelper::CreateTextureFromDDSData(ImageData,
-		                                                                Image->Width,
-		                                                                Image->Height,
-		                                                                ImageFormat,
-		                                                                Image->AssetName);
+		// UTexture2D* Texture = FCoDAssetHelper::CreateTextureFromDDSData(ImageData,
+		//                                                                 Image->Width,
+		//                                                                 Image->Height,
+		//                                                                 ImageFormat,
+		//                                                                 Image->AssetName);
 		// FCoDAssetHelper::SaveObjectToPackage(Texture, Image->AssetName);
 	}
 }

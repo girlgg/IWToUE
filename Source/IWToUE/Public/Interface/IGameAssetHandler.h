@@ -26,8 +26,12 @@ public:
 	virtual bool ReadModelData(TSharedPtr<FCoDModel> ModelInfo, FWraithXModel& OutModel) = 0;
 	virtual bool ReadAnimData(TSharedPtr<FCoDAnim> AnimInfo, FWraithXAnim& OutAnim) = 0;
 	virtual bool ReadImageData(TSharedPtr<FCoDImage> ImageInfo, TArray<uint8>& OutImageData, uint8& OutFormat) = 0;
+	virtual bool ReadImageDataFromPtr(uint64 ImageHandle, TArray<uint8>& OutImageData, uint8& OutFormat) = 0;
+	virtual bool ReadImageDataToTexture(uint64 ImageHandle, UTexture2D*& OutTexture, FString& ImageName,
+	                                    FString ImagePath = TEXT("")) = 0;
 	virtual bool ReadSoundData(TSharedPtr<FCoDSound> SoundInfo, FWraithXSound& OutSound) = 0;
 	virtual bool ReadMaterialData(TSharedPtr<FCoDMaterial> MaterialInfo, FWraithXMaterial& OutMaterial) = 0;
+	virtual bool ReadMaterialDataFromPtr(uint64 MaterialHandle, FWraithXMaterial& OutMaterial) = 0;
 
 	// --- 数据转换 ---
 
@@ -49,7 +53,7 @@ protected:
 	TSharedPtr<FGameProcess> GameProcess;
 
 	IGameAssetHandler(const TSharedPtr<FGameProcess>& InGameProcess) : MemoryReader(InGameProcess->GetMemoryReader()),
-	                                                                 GameProcess(InGameProcess)
+	                                                                   GameProcess(InGameProcess)
 	{
 	}
 };

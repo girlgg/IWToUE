@@ -10,29 +10,19 @@ bool FImageImporter::Import(const FString& ImportPath, TSharedPtr<FCoDAsset> Ass
 	TSharedPtr<FCoDImage> ImageInfo = StaticCastSharedPtr<FCoDImage>(Asset);
 	if (!ImageInfo.IsValid() || !Handler) return false;
 
-	TArray<uint8> ImageData;
-	uint8 ImageFormat = 0;
+	FString AssetName = FPaths::GetBaseFilename(ImageInfo->AssetName);
+	AssetName = FCoDAssetNameHelper::NoIllegalSigns(AssetName);
 
-	if (!Handler->ReadImageData(ImageInfo, ImageData, ImageFormat))
-	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to read image data for %s using current game handler."),
-		       *ImageInfo->AssetName);
-		return false;
-	}
+	FString PackagePath = FPaths::Combine(ImportPath, TEXT("Textures"));
 
-	if (!ImageData.IsEmpty())
+	UTexture2D* Texture;
+	Handler->ReadImageDataToTexture(ImageInfo->AssetPointer, Texture, AssetName, PackagePath);
+
+	FString FullPackagePath = FPaths::Combine(PackagePath, AssetName);
+	if (Texture)
 	{
-		FString AssetName = FPaths::GetBaseFilename(ImageInfo->AssetName);
-		FString PackagePath = FPaths::Combine(ImportPath, TEXT("Textures"));
-		UTexture2D* Texture = FCoDAssetHelper::CreateTextureFromDDSData(ImageData, ImageInfo->Width, ImageInfo->Height,
-		                                                                ImageFormat, AssetName);
-		// if(Texture)
-		// {
-		// FCoDAssetHelper::SaveObjectToPackage(Texture, PackagePath, AssetName);
-		// return true;
-		// }
-		UE_LOG(LogTemp, Log, TEXT("Placeholder: Create and Save Texture %s to %s"), *AssetName, *PackagePath);
-		return true;
+		// return FCoDAssetHelper::SaveObjectToPackage(Texture);
 	}
-	return false;
+	UE_LOG(LogTemp, Log, TEXT("Placeholder: Create and Save Texture %s to %s"), *AssetName, *PackagePath);
+	return true;
 }

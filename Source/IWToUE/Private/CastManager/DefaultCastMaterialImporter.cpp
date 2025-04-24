@@ -183,8 +183,7 @@ void FDefaultCastMaterialImporter::SetTextureParameter(UMaterialInstanceConstant
 
 	if (UTexture* TextureAsset = Cast<UTexture>(TextureInfo.TextureObject))
 	{
-		FMaterialParameterInfo TextureParameterInfo(FName(*TextureInfo.TextureType),
-		                                            EMaterialParameterAssociation::GlobalParameter, -1);
+		FMaterialParameterInfo TextureParameterInfo(FName(*TextureInfo.TextureType), GlobalParameter, -1);
 		Instance->SetTextureParameterValueEditorOnly(TextureParameterInfo, TextureAsset);
 	}
 	else

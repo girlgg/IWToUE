@@ -215,15 +215,14 @@ void FModernWarfare6AssetDiscoverer::DiscoverImageAssets(FXAsset64 AssetNode,
 
 void FModernWarfare6AssetDiscoverer::DiscoverAnimAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	ProcessGenericAssetNode<FMW6GfxImage, FCoDImage>(
-		AssetNode, EWraithAssetType::Image, TEXT("xanim"),
-		[](const FMW6GfxImage& ImageHeader, TSharedPtr<FCoDImage> LoadedImage)
+	ProcessGenericAssetNode<FMW6XAnim, FCoDAnim>(
+		AssetNode, EWraithAssetType::Animation, TEXT("xanim"),
+		[](const FMW6XAnim& Anim, TSharedPtr<FCoDAnim> LoadedAnim)
 		{
-			LoadedImage->Width = ImageHeader.Width;
-			LoadedImage->Height = ImageHeader.Height;
-			LoadedImage->Format = ImageHeader.ImageFormat;
-			LoadedImage->bIsFileEntry = false;
-			LoadedImage->Streamed = ImageHeader.LoadedImagePtr == 0;
+			LoadedAnim->AssetType = EWraithAssetType::Animation;
+			LoadedAnim->Framerate = Anim.Framerate;
+			LoadedAnim->FrameCount = Anim.FrameCount;
+			LoadedAnim->BoneCount = Anim.TotalBoneCount;
 		},
 		OnAssetDiscovered
 	);
@@ -246,14 +245,29 @@ void FModernWarfare6AssetDiscoverer::DiscoverMaterialAssets(FXAsset64 AssetNode,
 void FModernWarfare6AssetDiscoverer::DiscoverSoundAssets(FXAsset64 AssetNode,
                                                          FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	ProcessGenericAssetNode<FMW6XAnim, FCoDAnim>(
-		AssetNode, EWraithAssetType::Animation, TEXT("xsound"),
-		[](const FMW6XAnim& Anim, TSharedPtr<FCoDAnim> LoadedAnim)
+	ProcessGenericAssetNode<FMW6SoundAsset, FCoDSound>(
+		AssetNode, EWraithAssetType::Sound, TEXT("xsound"),
+		[](const FMW6SoundAsset& Sound, TSharedPtr<FCoDSound> LoadedSound)
 		{
-			LoadedAnim->AssetType = EWraithAssetType::Animation;
-			LoadedAnim->Framerate = Anim.Framerate;
-			LoadedAnim->FrameCount = Anim.FrameCount;
-			LoadedAnim->BoneCount = Anim.TotalBoneCount;
+			LoadedSound->FullName = LoadedSound->AssetName;
+			LoadedSound->AssetType = EWraithAssetType::Sound;
+			LoadedSound->AssetName = FPaths::GetBaseFilename(
+				LoadedSound->AssetName);
+			int32 DotIndex = LoadedSound->AssetName.Find(TEXT("."));
+			if (DotIndex != INDEX_NONE)
+			{
+				LoadedSound->AssetName = LoadedSound->AssetName.Left(
+					DotIndex);
+			}
+			LoadedSound->FullPath = FPaths::GetPath(LoadedSound->AssetName);
+
+			LoadedSound->FrameRate = Sound.FrameRate;
+			LoadedSound->FrameCount = Sound.FrameCount;
+			LoadedSound->ChannelsCount = Sound.ChannelCount;
+			LoadedSound->AssetSize = -1;
+			LoadedSound->bIsFileEntry = false;
+			LoadedSound->Length = 1000.0f * (LoadedSound->FrameCount /
+				static_cast<float>(LoadedSound->FrameRate));
 		},
 		OnAssetDiscovered
 	);

@@ -2,7 +2,7 @@
 
 #include "Interface/IDatabaseConnection.h"
 
-TOptional<int64> FSqliteFileMetaRepository::InsertOrUpdateFile(uint64 GameHash, const FString& RelativePath,
+bool FSqliteFileMetaRepository::InsertOrUpdateFile(uint64 GameHash, const FString& RelativePath,
                                                                uint64 ContentHash, int64 LastModifiedTime,
                                                                int64 KnownFileId)
 {

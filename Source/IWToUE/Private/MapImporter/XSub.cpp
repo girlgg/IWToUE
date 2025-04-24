@@ -5,14 +5,13 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Misc/FileHelper.h"
 #include "oodle2.h"
+#include "Database/CoDDatabaseService.h"
 #include "WraithX/CoDAssetDatabase.h"
 
 FXSub::FXSub(uint64 GameID, const FString& GamePath)
 {
 	// SharedGamePath = GamePath;
 	// FPaths::NormalizeFilename(SharedGamePath);
-	// TODO 异步加载
-	// FCoDAssetDatabase::Get().XSub_Initial(GameID, SharedGamePath);
 }
 
 void FXSub::LoadFiles()
@@ -185,12 +184,13 @@ TArray<uint8> FXSub::ExtractXSubPackage(uint64 Key, uint32 Size)
 {
 	FRWScopeLock ReadLock(CacheLock, SLT_ReadOnly);
 
-	FXSubPackageCacheObject CacheObject;
-	if (!FCoDAssetDatabase::Get().XSub_QueryValue(Key, CacheObject))
+	TOptional<FXSubPackageCacheObject> ResObj = FCoDDatabaseService::Get().GetXSubInfoSync(Key);
+	if (!ResObj.IsSet())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("%lld does not exist in the current package objects database."), Key);
 		return TArray<uint8>();
 	}
+	FXSubPackageCacheObject CacheObject = ResObj.GetValue();
 
 	TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*CacheObject.Path, FILEREAD_Silent));
 	if (!Reader)
@@ -299,8 +299,8 @@ TArray<uint8> FXSub::ExtractXSubPackage(uint64 Key, uint32 Size)
 
 bool FXSub::ExistsKey(uint64 CacheID)
 {
-	FXSubPackageCacheObject CacheObject;
-	return FCoDAssetDatabase::Get().XSub_QueryValue(CacheID, CacheObject);
+	TOptional<FXSubPackageCacheObject> Result = FCoDDatabaseService::Get().GetXSubInfoSync(CacheID);
+	return Result.IsSet();
 }
 
 void FXSub::RemoveInvalidEntries(const FString& RemovedFilePath)

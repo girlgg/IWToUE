@@ -239,17 +239,20 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 	StaticMesh->Build(false); // Build the mesh with all LODs
 
 	// --- Asset Import Data ---
-	if (UAssetImportData* ImportDataPtr = StaticMesh->GetAssetImportData())
+	if (!OriginalFilePath.IsEmpty())
 	{
-		FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-		ImportDataPtr->Update(FullPath);
-	}
-	else
-	{
-		UAssetImportData* NewImportData = NewObject<UAssetImportData>(StaticMesh, TEXT("AssetImportData"));
-		StaticMesh->SetAssetImportData(NewImportData);
-		FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-		NewImportData->Update(FullPath);
+		if (UAssetImportData* ImportDataPtr = StaticMesh->GetAssetImportData())
+		{
+			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
+			ImportDataPtr->Update(FullPath);
+		}
+		else
+		{
+			UAssetImportData* NewImportData = NewObject<UAssetImportData>(StaticMesh, TEXT("AssetImportData"));
+			StaticMesh->SetAssetImportData(NewImportData);
+			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
+			NewImportData->Update(FullPath);
+		}
 	}
 
 	StaticMesh->PostEditChange();
@@ -263,7 +266,8 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 USkeletalMesh* FDefaultCastMeshImporter::ImportSkeletalMesh(FCastScene& CastScene,
                                                             const FCastImportOptions& Options,
                                                             UObject* InParent,
-                                                            FName Name, EObjectFlags Flags,
+                                                            FName Name,
+                                                            EObjectFlags Flags,
                                                             ICastMaterialImporter* MaterialImporter,
                                                             FString OriginalFilePath,
                                                             TArray<UObject*>& OutCreatedObjects)
@@ -545,17 +549,20 @@ USkeletalMesh* FDefaultCastMeshImporter::ImportSkeletalMesh(FCastScene& CastScen
 	}
 
 	// Add asset import data link
-	if (UAssetImportData* ImportDataPtr = SkeletalMesh->GetAssetImportData())
+	if (!OriginalFilePath.IsEmpty())
 	{
-		FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-		ImportDataPtr->Update(FullPath);
-	}
-	else
-	{
-		UAssetImportData* NewImportData = NewObject<UAssetImportData>(SkeletalMesh, TEXT("AssetImportData"));
-		SkeletalMesh->SetAssetImportData(NewImportData);
-		FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-		NewImportData->Update(FullPath);
+		if (UAssetImportData* ImportDataPtr = SkeletalMesh->GetAssetImportData())
+		{
+			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
+			ImportDataPtr->Update(FullPath);
+		}
+		else
+		{
+			UAssetImportData* NewImportData = NewObject<UAssetImportData>(SkeletalMesh, TEXT("AssetImportData"));
+			SkeletalMesh->SetAssetImportData(NewImportData);
+			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
+			NewImportData->Update(FullPath);
+		}
 	}
 
 	// Finalize
@@ -1010,17 +1017,22 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastModelIn
 		}
 
 		// Influences (Weights)
-		if (Mesh.VertexWeightBone.Num() != Mesh.VertexWeightValue.Num() ||
-			(Mesh.VertexWeightBone.Num() % Mesh.MaxWeight != 0 && Mesh.MaxWeight > 0))
+		if (!Mesh.VertexWeights.IsEmpty())
 		{
-			UE_LOG(LogCast, Warning,
-			       TEXT(
-				       "Inconsistent weight data for mesh %s (Bones: %d, Values: %d, MaxWeight: %d). Skipping weights for this mesh."
-			       ), *Mesh.Name, Mesh.VertexWeightBone.Num(), Mesh.VertexWeightValue.Num(), Mesh.MaxWeight);
+			for (int32 VertexId = 0; VertexId < Mesh.VertexWeights.Num(); ++VertexId)
+			{
+				for (int32 InfluenceIdx = 0; InfluenceIdx < Mesh.VertexWeights[VertexId].WeightCount; ++InfluenceIdx)
+				{
+					SkeletalMeshImportData::FRawBoneInfluence Influence;
+					Influence.VertexIndex = TotalVertexOffset + VertexId;
+					Influence.BoneIndex = Mesh.VertexWeights[VertexId].BoneValues[InfluenceIdx];
+					Influence.Weight = Mesh.VertexWeights[VertexId].WeightValues[InfluenceIdx];
+					OutImportData.Influences.Add(Influence);
+				}
+			}
 		}
-		else if (Mesh.MaxWeight > 0) // Only process if there are weights
+		else if (Mesh.MaxWeight > 0)
 		{
-			int32 NumVertsWithWeights = Mesh.VertexWeightBone.Num() / Mesh.MaxWeight;
 			for (int32 InfluenceIdx = 0; InfluenceIdx < Mesh.VertexWeightBone.Num(); ++InfluenceIdx)
 			{
 				int32 LocalVertexIdx = InfluenceIdx / Mesh.MaxWeight;
@@ -1047,14 +1059,6 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastModelIn
 		}
 
 		TotalVertexOffset += MeshVertexCount;
-
-		// Bounding box calculation needs to be handled globally after all LODs
-		// if (Mesh.VertexPositions.Num() > 0)
-		// {
-		// 	Mesh.ComputeBBox();
-		// 	AllMeshPoints.Add(Mesh.BBoxMin);
-		// 	AllMeshPoints.Add(Mesh.BBoxMax);
-		// }
 	}
 
 	bOutHasVertexColors |= bLodHasColors;
@@ -1075,13 +1079,18 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastModelIn
 }
 
 void FDefaultCastMeshImporter::EnsureSkeletonAndPhysicsAsset(USkeletalMesh* SkeletalMesh,
-                                                             const FCastImportOptions& Options, UObject* ParentPackage,
+                                                             const FCastImportOptions& Options,
+                                                             UObject* ParentPackage,
                                                              TArray<UObject*>& OutCreatedObjects)
 {
 	if (!SkeletalMesh) return;
 
 	USkeleton* Skeleton = SkeletalMesh->GetSkeleton();
 	UPackage* SkelPackage = SkeletalMesh->GetOutermost();
+
+	FString TargetDirectoryPath = ParentPackage->IsA<UPackage>()
+		                              ? ParentPackage->GetPathName()
+		                              : FPaths::GetPath(ParentPackage->GetPathName());
 
 	if (!Skeleton && Options.Skeleton)
 	{
@@ -1096,7 +1105,7 @@ void FDefaultCastMeshImporter::EnsureSkeletonAndPhysicsAsset(USkeletalMesh* Skel
 		FString SkeletonName = FString::Printf(TEXT("%s_Skeleton"), *SkeletalMesh->GetName());
 		UE_LOG(LogCast, Log, TEXT("Creating new skeleton %s for mesh %s"), *SkeletonName, *SkeletalMesh->GetName());
 
-		Skeleton = CreateAsset<USkeleton>(SkelPackage->GetPathName(), SkeletonName, true);
+		Skeleton = CreateAsset<USkeleton>(TargetDirectoryPath, SkeletonName, true);
 		if (Skeleton)
 		{
 			OutCreatedObjects.Add(Skeleton);
@@ -1137,7 +1146,7 @@ void FDefaultCastMeshImporter::EnsureSkeletonAndPhysicsAsset(USkeletalMesh* Skel
 		UE_LOG(LogCast, Log, TEXT("Creating new PhysicsAsset %s for mesh %s"), *PhysicsAssetName,
 		       *SkeletalMesh->GetName());
 
-		UPhysicsAsset* NewPhysicsAsset = CreateAsset<UPhysicsAsset>(SkelPackage->GetPathName(), PhysicsAssetName, true);
+		UPhysicsAsset* NewPhysicsAsset = CreateAsset<UPhysicsAsset>(TargetDirectoryPath, PhysicsAssetName, true);
 		if (NewPhysicsAsset)
 		{
 			OutCreatedObjects.Add(NewPhysicsAsset);

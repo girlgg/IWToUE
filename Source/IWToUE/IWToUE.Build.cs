@@ -11,13 +11,18 @@ public class IWToUE : ModuleRules
 
 		var engineRoot = Path.GetFullPath(Target.RelativeEnginePath);
 
+		string DirectXTexPath = Path.Combine(ModuleDirectory, "ThirdParty", "DirectXTex");
+
 		PublicIncludePaths.AddRange(
 			new string[]
 			{
+				Path.Combine(DirectXTexPath, "Include")
 			}
 		);
 
-
+		string LibPath = Path.Combine(DirectXTexPath, "Lib");
+		PublicAdditionalLibraries.Add(Path.Combine(LibPath, "DirectXTex.lib"));
+		
 		PrivateIncludePaths.AddRange(
 			new string[]
 			{
@@ -35,7 +40,9 @@ public class IWToUE : ModuleRules
 				"SQLiteCore",
 				"SQLiteSupport",
 				"Projects",
-				"libOpus"
+				"libOpus",
+				"RHI",
+				"RenderCore"
 			}
 		);
 
@@ -60,7 +67,8 @@ public class IWToUE : ModuleRules
 				"ToolWidgets",
 				"ApplicationCore",
 				"MessageLog",
-				"HTTP"
+				"HTTP",
+				"EditorScriptingUtilities"
 			}
 		);
 

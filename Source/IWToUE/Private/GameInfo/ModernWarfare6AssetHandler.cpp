@@ -1,9 +1,11 @@
 ﻿#include "GameInfo/ModernWarfare6AssetHandler.h"
 
+#include "CDN/CoDCDNDownloader.h"
 #include "Database/CoDDatabaseService.h"
 #include "GameInfo/ModernWarfare6.h"
 #include "Interface/IMemoryReader.h"
 #include "Structures/MW6SPGameStructures.h"
+#include "ThirdSupport/SABSupport.h"
 #include "Utils/CoDAssetHelper.h"
 #include "Utils/CoDBonesHelper.h"
 #include "WraithX/CoDAssetDatabase.h"
@@ -19,7 +21,7 @@ bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo,
 
 	if (BoneInfo.BoneParentsPtr)
 	{
-		OutModel.BoneCount = BoneInfo.NumBones;
+		OutModel.BoneCount = BoneInfo.NumBones + BoneInfo.CosmeticBoneCount;
 		OutModel.RootBoneCount = BoneInfo.NumRootBones;
 	}
 
@@ -102,17 +104,184 @@ bool FModernWarfare6AssetHandler::ReadAnimData(TSharedPtr<FCoDAnim> AnimInfo, FW
 bool FModernWarfare6AssetHandler::ReadImageData(TSharedPtr<FCoDImage> ImageInfo, TArray<uint8>& OutImageData,
                                                 uint8& OutFormat)
 {
-	return false;
+	return ReadImageDataFromPtr(ImageInfo->AssetPointer, OutImageData, OutFormat);
+}
+
+bool FModernWarfare6AssetHandler::ReadImageDataFromPtr(uint64 ImageHandle, TArray<uint8>& OutCompleteDDSData,
+                                                       uint8& OutDxgiFormat)
+{
+	TArray<uint8> RawPixelData;
+
+	FMW6GfxImage ImageAsset;
+	if (!MemoryReader->ReadMemory<FMW6GfxImage>(ImageHandle, ImageAsset))
+	{
+		UE_LOG(LogTemp, Error, TEXT("ReadImageDataFromPtr: Failed to read FMW6GfxImage at handle 0x%llX"), ImageHandle);
+		return false;
+	}
+	OutDxgiFormat = GMW6DXGIFormats[ImageAsset.ImageFormat];
+	uint32 ImageSize = 0;
+	uint32 ActualWidth;
+	uint32 ActualHeight;
+	if (ImageAsset.LoadedImagePtr)
+	{
+		ImageSize = ImageAsset.BufferSize;
+		if (ImageSize == 0)
+		{
+			UE_LOG(LogTemp, Error, TEXT("ReadImageDataFromPtr: BufferSize is 0 for LoadedImagePtr case. Hash: 0x%llX"),
+			       ImageAsset.Hash);
+			return false;
+		}
+
+		RawPixelData.SetNumUninitialized(ImageSize);
+		if (!MemoryReader->ReadArray(ImageAsset.LoadedImagePtr, RawPixelData, ImageAsset.BufferSize) || RawPixelData.
+			Num() != ImageSize)
+		{
+			RawPixelData.Empty();
+			UE_LOG(LogTemp, Error,
+			       TEXT(
+				       "ReadImageDataFromPtr: Failed to read %d bytes from LoadedImagePtr 0x%llX. Read %llu bytes. Hash: 0x%llX"
+			       ), ImageSize, ImageAsset.LoadedImagePtr, RawPixelData.Num(), ImageAsset.Hash);
+			return false;
+		}
+		ActualWidth = ImageAsset.Width;
+		ActualHeight = ImageAsset.Height;
+	}
+	else
+	{
+		if (ImageAsset.MipMaps == 0)
+		{
+			UE_LOG(LogTemp, Error,
+			       TEXT(
+				       "ReadImageDataFromPtr: MipMaps pointer is null and LoadedImagePtr is null. Cannot get data. Hash: 0x%llX"
+			       ), ImageAsset.Hash);
+			return false;
+		}
+
+		FMW6GfxMipArray Mips;
+		uint32 MipCount = FMath::Min(static_cast<uint32>(ImageAsset.MipCount), 32u);
+		if (!MemoryReader->ReadArray(ImageAsset.MipMaps, Mips.MipMaps, MipCount))
+		{
+			UE_LOG(LogTemp, Error, TEXT("ReadImageDataFromPtr: Failed to read MipMap array structure. Hash: 0x%llX"),
+			       ImageAsset.Hash);
+			return false;
+		}
+
+		int32 FallbackMipIndex = -1;
+		int32 HighestIndex = ImageAsset.MipCount - 1;
+
+		for (uint32 MipIdx = 0; MipIdx < MipCount; ++MipIdx)
+		{
+			if (GameProcess->GetDecrypt()->ExistsKey(Mips.MipMaps[MipIdx].HashID))
+			{
+				FallbackMipIndex = MipIdx;
+			}
+		}
+
+		if (FallbackMipIndex != HighestIndex && GameProcess && GameProcess->GetCDNDownloader())
+		{
+			ImageSize =
+				GameProcess->GetCDNDownloader()->ExtractCDNObject(RawPixelData,
+				                                                  Mips.MipMaps[HighestIndex].HashID,
+				                                                  Mips.GetImageSize(HighestIndex));
+		}
+
+		if (RawPixelData.IsEmpty())
+		{
+			RawPixelData = GameProcess->GetDecrypt()->ExtractXSubPackage(Mips.MipMaps[FallbackMipIndex].HashID,
+			                                                             Mips.GetImageSize(FallbackMipIndex));
+			ImageSize = RawPixelData.Num();
+			HighestIndex = FallbackMipIndex;
+		}
+		ActualWidth = ImageAsset.Width >> (MipCount - HighestIndex - 1);
+		ActualHeight = ImageAsset.Height >> (MipCount - HighestIndex - 1);
+	}
+
+	TArray<uint8> DDSHeader = FCoDAssetHelper::BuildDDSHeader(ActualWidth, ActualHeight, 1, 1, OutDxgiFormat, false);
+
+	if (DDSHeader.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("ReadImageDataFromPtr: Failed to build DDS header (MipCount=1) for hash 0x%llX"),
+		       ImageAsset.Hash);
+		return false;
+	}
+
+	OutCompleteDDSData.Empty(DDSHeader.Num() + RawPixelData.Num());
+	OutCompleteDDSData.Append(DDSHeader);
+	OutCompleteDDSData.Append(MoveTemp(RawPixelData));
+
+	return true;
+}
+
+bool FModernWarfare6AssetHandler::ReadImageDataToTexture(uint64 ImageHandle, UTexture2D*& OutTexture,
+                                                         FString& ImageName, FString ImagePath)
+{
+	FMW6GfxImage ImageAsset;
+	if (!MemoryReader->ReadMemory<FMW6GfxImage>(ImageHandle, ImageAsset))
+	{
+		return false;
+	}
+	if (ImageAsset.Width < 2 && ImageAsset.Height < 2)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ReadImageDataToTexture: Invalid image Name: %s, with a size of only 1"),
+		       *ImageName);
+		return false;
+	}
+	if (ImageName.IsEmpty())
+	{
+		ImageName = FCoDDatabaseService::Get().GetPrintfAssetName(ImageAsset.Hash, TEXT("ximage"));
+		ImageName = FCoDAssetNameHelper::NoIllegalSigns(ImageName);
+	}
+	TArray<uint8> CompleteDDSData;
+	uint8 DxgiFormat;
+	if (!ReadImageDataFromPtr(ImageHandle, CompleteDDSData, DxgiFormat))
+	{
+		UE_LOG(LogTemp, Error, TEXT("ReadImageDataToTexture: Failed to read image data for handle 0x%llX (Name: %s)"),
+		       ImageHandle, *ImageName);
+		return false;
+	}
+	if (CompleteDDSData.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error,
+		       TEXT("ReadImageDataToTexture: ReadImageDataFromPtr returned success but data array is empty for %s"),
+		       *ImageName);
+		return false;
+	}
+	OutTexture = FCoDAssetHelper::CreateTextureFromDDSData(CompleteDDSData, ImageName, ImagePath);
+	return true;
 }
 
 bool FModernWarfare6AssetHandler::ReadSoundData(TSharedPtr<FCoDSound> SoundInfo, FWraithXSound& OutSound)
 {
-	return false;
+	FMW6SoundAsset SoundData;
+	if (!MemoryReader->ReadMemory<FMW6SoundAsset>(SoundInfo->AssetPointer, SoundData))
+	{
+		return false;
+	}
+	OutSound.ChannelCount = SoundData.ChannelCount;
+	OutSound.FrameCount = SoundData.FrameCount;
+	OutSound.FrameRate = SoundData.FrameRate;
+	if (SoundData.StreamKey)
+	{
+		TArray<uint8> SoundBuffer = GameProcess->GetDecrypt()->ExtractXSubPackage(
+			SoundData.StreamKey, ((SoundData.Size + SoundData.SeekTableSize + 4095) & 0xFFFFFFFFFFFFFFF0));
+		if (SoundBuffer.IsEmpty()) return false;
+		SoundBuffer.RemoveAt(0, SoundData.SeekTableSize);
+		return SABSupport::DecodeOpusInterLeaved(OutSound, SoundBuffer,
+		                                         0, SoundData.FrameRate,
+		                                         SoundData.ChannelCount, SoundData.FrameCount);
+	}
+	TArray<uint8> SoundBuffer = GameProcess->GetDecrypt()->ExtractXSubPackage(
+		SoundData.StreamKeyEx, ((SoundData.LoadedSize + SoundData.SeekTableSize + 4095) & 0xFFFFFFFFFFFFFFF0));
+	if (SoundBuffer.IsEmpty()) return false;
+	SoundBuffer.RemoveAt(0, 32 + SoundData.SeekTableSize);
+	return SABSupport::DecodeOpusInterLeaved(OutSound, SoundBuffer,
+	                                         0, SoundData.FrameRate,
+	                                         SoundData.ChannelCount, SoundData.FrameCount);
 }
 
 bool FModernWarfare6AssetHandler::ReadMaterialData(TSharedPtr<FCoDMaterial> MaterialInfo, FWraithXMaterial& OutMaterial)
 {
-	return false;
+	return ReadMaterialDataFromPtr(MaterialInfo->AssetPointer, OutMaterial);
 }
 
 bool FModernWarfare6AssetHandler::ReadMaterialDataFromPtr(uint64 MaterialHandle, FWraithXMaterial& OutMaterial)
@@ -127,17 +296,25 @@ bool FModernWarfare6AssetHandler::ReadMaterialDataFromPtr(uint64 MaterialHandle,
 		FMW6Material MaterialData;
 		MemoryReader->ReadMemory<FMW6Material>(MaterialHandle, MaterialData);
 
+		OutMaterial.MaterialHash = (MaterialData.Hash & 0xFFFFFFFFFFFFFFF);
 		OutMaterial.MaterialName = FCoDDatabaseService::Get().GetPrintfAssetName(MaterialData.Hash, TEXT("xmaterial"));
 
-		TArray<FMW6GfxImage> Images;
+		struct FImageWithPtr
+		{
+			FMW6GfxImage Image;
+			uint64 ImagePtr;
+		};
+
+		TArray<FImageWithPtr> Images;
 		Images.Reserve(MaterialData.ImageCount);
 		for (uint32 i = 0; i < MaterialData.ImageCount; i++)
 		{
 			uint64 ImagePtr;
 			MemoryReader->ReadMemory<uint64>(MaterialData.ImageTable + i * sizeof(uint64), ImagePtr);
-			FMW6GfxImage Image;
-			MemoryReader->ReadMemory<FMW6GfxImage>(ImagePtr, Image);
-			Images.Add(Image);
+			FImageWithPtr ImageWithPtr;
+			ImageWithPtr.ImagePtr = ImagePtr;
+			MemoryReader->ReadMemory<FMW6GfxImage>(ImagePtr, ImageWithPtr.Image);
+			Images.Add(ImageWithPtr);
 		}
 
 		OutMaterial.Images.Empty();
@@ -147,7 +324,7 @@ bool FModernWarfare6AssetHandler::ReadMaterialDataFromPtr(uint64 MaterialHandle,
 			FMW6MaterialTextureDef TextureDef;
 			MemoryReader->ReadMemory<FMW6MaterialTextureDef>(
 				MaterialData.TextureTable + i * sizeof(FMW6MaterialTextureDef), TextureDef);
-			FMW6GfxImage Image = Images[TextureDef.ImageIdx];
+			FMW6GfxImage Image = Images[TextureDef.ImageIdx].Image;
 
 			FString ImageName;
 
@@ -159,6 +336,7 @@ bool FModernWarfare6AssetHandler::ReadMaterialDataFromPtr(uint64 MaterialHandle,
 				FWraithXImage& ImageOut = OutMaterial.Images.AddDefaulted_GetRef();
 				ImageOut.ImageName = ImageName;
 				ImageOut.SemanticHash = TextureDef.Index;
+				ImageOut.ImagePtr = Images[TextureDef.ImageIdx].ImagePtr;
 			}
 		}
 	}
@@ -170,35 +348,45 @@ bool FModernWarfare6AssetHandler::TranslateModel(FWraithXModel& InModel, int32 L
 {
 	OutModelInfo.Name = InModel.ModelName;
 
+	if (!InModel.ModelLods.IsValidIndex(LodIdx)) return false;
 	FWraithXModelLod& LodRef = InModel.ModelLods[LodIdx];
 
-	TMap<FString, uint32> MaterialMap;
-
+	TMap<FString, uint32> MaterialNameToIndexMap;
 	OutModelInfo.Materials.Reserve(LodRef.Materials.Num());
-	for (int32 MatIdx = 0; MatIdx < LodRef.Materials.Num(); ++MatIdx)
+
+	for (int32 MaterialIdx = 0; MaterialIdx < LodRef.Materials.Num(); ++MaterialIdx)
 	{
-		FWraithXMaterial& MatRef = LodRef.Materials[MatIdx];
-
-		if (MaterialMap.Contains(MatRef.MaterialName))
+		FWraithXMaterial& Material = LodRef.Materials[MaterialIdx];
+		FString MaterialName = FCoDAssetNameHelper::NoIllegalSigns(Material.MaterialName);
+		FWraithXModelSubmesh& Submesh = LodRef.Submeshes[MaterialIdx];
+		if (MaterialNameToIndexMap.Contains(MaterialName))
 		{
-			LodRef.Submeshes[MatIdx].MaterialIndex = MaterialMap[MatRef.MaterialName];
+			Submesh.MaterialIndex = MaterialNameToIndexMap[MaterialName];
+			continue;
 		}
-		else
+		int32 NewIndex = OutModelInfo.Materials.Num();
+		FCastMaterialInfo& MaterialInfo = OutModelInfo.Materials.AddDefaulted_GetRef();
+		MaterialInfo.Name = MaterialName;
+		MaterialInfo.MaterialHash = Material.MaterialHash;
+
+		Submesh.MaterialIndex = NewIndex;
+		Submesh.MaterialHash = Material.MaterialHash;
+
+		OutModelInfo.MaterialMap.Add(Material.MaterialHash, NewIndex);
+
+		MaterialInfo.Textures.Reserve(Material.Images.Num());
+		for (const FWraithXImage& Image : Material.Images)
 		{
-			FCastMaterialInfo& MaterialInfo = OutModelInfo.Materials.AddDefaulted_GetRef();
-			MaterialInfo.Name = MatRef.MaterialName;
+			if (!Image.ImageObject) continue;
 
-			// TODO 加载材质
-			for (const FWraithXImage& Image : MatRef.Images)
-			{
-				FCastTextureInfo& Texture = MaterialInfo.Textures.AddDefaulted_GetRef();
-				Texture.TextureName = Image.ImageName;
+			FCastTextureInfo& TextureInfo = MaterialInfo.Textures.AddDefaulted_GetRef();
 
-				FString TextureSemantic = FString::Printf(TEXT("unk_semantic_0x%x"), Image.SemanticHash);
-				Texture.TextureSemantic = TextureSemantic;
-			}
-			MaterialMap.Emplace(MatRef.MaterialName, OutModelInfo.Materials.Num() - 1);
+			TextureInfo.TextureName = Image.ImageName;
+			TextureInfo.TextureObject = Image.ImageObject;
+			TextureInfo.TextureSlot = FString::Printf(TEXT("unk_semantic_0x%x"), Image.SemanticHash);
+			TextureInfo.TextureType = TextureInfo.TextureSlot;
 		}
+		MaterialNameToIndexMap.Add(MaterialName, NewIndex);
 	}
 	if (InModel.IsModelStreamed)
 	{
@@ -267,6 +455,7 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 	{
 		FCastMeshInfo& Mesh = OutModel.Meshes.AddDefaulted_GetRef();
 		Mesh.MaterialIndex = Submesh.MaterialIndex;
+		Mesh.MaterialHash = Submesh.MaterialHash;
 
 		FBufferReader VertexPosReader(MeshDataBuffer.GetData() + Submesh.VertexOffset,
 		                              Submesh.VertexOffset * sizeof(uint64), false);
@@ -284,7 +473,6 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 		{
 			WeightDataLength += (WeightIdx + 1) * 4 * Submesh.WeightCounts[WeightIdx];
 		}
-		// TODO 多骨骼支持
 		if (OutModel.Skeletons.Num() > 0)
 		{
 			FBufferReader VertexWeightReader(MeshDataBuffer.GetData() + Submesh.WeightsOffset, WeightDataLength, false);
@@ -325,7 +513,7 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 		Mesh.VertexNormals.Reserve(Submesh.VertexCount);
 		Mesh.VertexUV.Reserve(Submesh.VertexCount);
 		Mesh.VertexColor.Reserve(Submesh.VertexCount);
-		// UV
+
 		for (uint32 VertexIdx = 0; VertexIdx < Submesh.VertexCount; ++VertexIdx)
 		{
 			FVector3f& VertexPos = Mesh.VertexPositions.AddDefaulted_GetRef();
@@ -346,10 +534,9 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 
 			uint16 HalfUvU, HalfUvV;
 			VertexUVReader << HalfUvU << HalfUvV;
-			FFloat16 HalfFloatU, HalfFloatV;
-			HalfFloatU.Encoded = HalfUvU;
-			HalfFloatV.Encoded = HalfUvV;
-			Mesh.VertexUV.Emplace(HalfUvU, HalfFloatU);
+			float HalfU = HalfFloatHelper::ToFloat(HalfUvU);
+			float HalfV = HalfFloatHelper::ToFloat(HalfUvV);
+			Mesh.VertexUV.Emplace(HalfU, HalfV);
 		}
 		// TODO Second UV
 		// 顶点色

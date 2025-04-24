@@ -20,5 +20,6 @@ bool IMemoryReader::ReadArray(uint64 Address, TArray<T>& OutArray, uint64 Length
 		OutArray.Empty();
 		return true;
 	}
+	OutArray.SetNum(Length);
 	return ReadArrayImpl(Address, OutArray.GetData(), Length, sizeof(T));
 }

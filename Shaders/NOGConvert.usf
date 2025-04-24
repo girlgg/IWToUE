@@ -1,0 +1,36 @@
+﻿void NOGConvert(float4 NOG, out float3 Normal, out float AmbientOcclusion, out float Roughness)
+{
+	float a = NOG.y * 2 - 1;
+	float b = NOG.w * 2 - 1;
+	float c = (a + b) * 0.5;
+	float d = (a - b) * 0.5;
+
+	Normal.x = a;
+	Normal.y = b;
+	Normal.z = 1 - abs(c) - abs(d);
+
+	Normal = normalize(Normal);
+
+	Roughness = 1 - NOG.x;
+	AmbientOcclusion = NOG.z;
+}
+
+float3 NOGConvertNormal(float4 NOG)
+{
+	float a = NOG.y * 2 - 1;
+	float b = NOG.w * 2 - 1;
+	float c = (a + b) * 0.5;
+	float d = (a - b) * 0.5;
+
+	return normalize(float3(a, b, 1 - abs(c) - abs(d)));
+}
+
+float NOGConvertAO(float4 NOG)
+{
+	return NOG.z;
+}
+
+float NOGConvertRoughness(float4 NOG)
+{
+	return 1 - NOG.x;
+}
