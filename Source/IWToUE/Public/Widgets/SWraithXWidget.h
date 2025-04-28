@@ -1,7 +1,7 @@
 ﻿#pragma once
-#include "CoDAssetType.h"
-#include "WraithX.h"
-#include "WraithXViewModel.h"
+#include "WraithX/CoDAssetType.h"
+#include "WraithX/WraithX.h"
+#include "WraithX/WraithXViewModel.h"
 #include "AssetImporter/AssetImportManager.h"
 
 class FWraithXViewModel;

@@ -257,7 +257,7 @@ void FCastManager::ProcessRootData(FCastNode& Node, FCastRoot& Root)
 			}
 			for (uint32 Idx : Node.ChildNodes)
 			{
-				ProcessModelData(Scene->Nodes[Idx], Model);
+				ProcessModelData(Scene->Nodes[Idx], Root, Model);
 			}
 			Root.Models.Add(Model);
 			break;
@@ -341,7 +341,7 @@ void FCastManager::ProcessRootData(FCastNode& Node, FCastRoot& Root)
 	}
 }
 
-void FCastManager::ProcessModelData(FCastNode& Node, FCastModelInfo& Model)
+void FCastManager::ProcessModelData(FCastNode& Node, FCastRoot& Root, FCastModelInfo& Model)
 {
 	switch (Node.Header.Identifier)
 	{
@@ -556,8 +556,8 @@ void FCastManager::ProcessModelData(FCastNode& Node, FCastModelInfo& Model)
 			{
 				ProcessMaterialData(Scene->Nodes[Idx], Material);
 			}
-			int32 MatIdx = Model.Materials.Add(Material);
-			Model.MaterialMap.Add(Material.MaterialHash, MatIdx);
+			int32 MatIdx = Root.Materials.Add(Material);
+			Root.MaterialMap.Add(Material.MaterialHash, MatIdx);
 			break;
 		}
 	}

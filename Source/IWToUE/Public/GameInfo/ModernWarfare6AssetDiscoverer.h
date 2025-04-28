@@ -3,7 +3,11 @@
 #include "Database/CoDDatabaseService.h"
 #include "Interface/IGameAssetDiscoverer.h"
 #include "Interface/IMemoryReader.h"
+#include "WraithX/CoDAssetType.h"
 #include "WraithX/GameProcess.h"
+
+class UWraithSettings;
+class UWraithSettingsManager;
 
 class FModernWarfare6AssetDiscoverer : public IGameAssetDiscoverer
 {
@@ -24,7 +28,7 @@ public:
 	virtual TArray<FAssetPoolDefinition> GetAssetPools() const override;
 
 	virtual int32 DiscoverAssetsInPool(const FAssetPoolDefinition& PoolDefinition,
-	                                  FAssetDiscoveredDelegate OnAssetDiscovered) override;
+	                                   FAssetDiscoveredDelegate OnAssetDiscovered) override;
 
 	virtual bool LoadStringTableEntry(uint64 Index, FString& OutString) override;
 
@@ -49,6 +53,7 @@ private:
 	void DiscoverAnimAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
 	void DiscoverMaterialAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
 	void DiscoverSoundAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
+	void DiscoverMapAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
 
 	// Helper to clean up asset names
 	static FString ProcessAssetName(const FString& Name);
@@ -62,12 +67,11 @@ private:
 };
 
 template <typename TGameAssetStruct, typename TCoDAssetType>
-void FModernWarfare6AssetDiscoverer::ProcessGenericAssetNode(FXAsset64 AssetNode, EWraithAssetType WraithType,
-                                                             const TCHAR* DefaultPrefix,
-                                                             TFunction<void(
-	                                                             const TGameAssetStruct& AssetHeader,
-	                                                             TSharedPtr<TCoDAssetType> CoDAsset)> Customizer,
-                                                             FAssetDiscoveredDelegate OnAssetDiscovered)
+void FModernWarfare6AssetDiscoverer::ProcessGenericAssetNode(
+	FXAsset64 AssetNode, EWraithAssetType WraithType,
+	const TCHAR* DefaultPrefix,
+	TFunction<void(const TGameAssetStruct& AssetHeader, TSharedPtr<TCoDAssetType> CoDAsset)> Customizer,
+	FAssetDiscoveredDelegate OnAssetDiscovered)
 {
 	TGameAssetStruct AssetHeader;
 	if (!Reader->ReadMemory<TGameAssetStruct>(AssetNode.Header, AssetHeader))
@@ -91,7 +95,7 @@ void FModernWarfare6AssetDiscoverer::ProcessGenericAssetNode(FXAsset64 AssetNode
 			LoadedAsset->AssetPointer = NodeHeader;
 			LoadedAsset->AssetStatus = EWraithAssetStatus::Loaded;
 
-			if constexpr (TIsSame<TCoDAssetType, FCoDAnim>::Value)
+			if constexpr (std::is_same_v<TCoDAssetType, FCoDAnim>)
 			{
 				LoadedAsset->AssetStatus = NodeTemp == 1
 					                           ? EWraithAssetStatus::Placeholder
@@ -99,6 +103,6 @@ void FModernWarfare6AssetDiscoverer::ProcessGenericAssetNode(FXAsset64 AssetNode
 			}
 			Customizer(AssetHeader, LoadedAsset);
 
-			OnAssetDiscovered.ExecuteIfBound(LoadedAsset);
+			OnAssetDiscovered.ExecuteIfBound(StaticCastSharedPtr<FCoDAsset>(LoadedAsset));
 		});
 }

@@ -1,4 +1,4 @@
-﻿#include "WraithX/SWraithXWidget.h"
+﻿#include "Widgets/SWraithXWidget.h"
 
 #include "Framework/Notifications/NotificationManager.h"
 #include "Localization/IWToUELocalizationManager.h"
@@ -6,7 +6,7 @@
 #include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/Notifications/SNotificationList.h"
 #include "Widgets/Notifications/SProgressBar.h"
-#include "WraithX/SSettingsDialog.h"
+#include "Widgets/SSettingsDialog.h"
 #include "WraithX/WraithXViewModel.h"
 
 void SWraithXWidget::Construct(const FArguments& InArgs)
@@ -627,18 +627,26 @@ FReply SWraithXWidget::HandleImportAllClicked()
 
 FReply SWraithXWidget::HandleSettingsClicked()
 {
+	UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>();
+	UWraithSettings* Settings = SettingsManager->GetSettingsMutable();
+	
+	if (!Settings)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to get WraithX Settings object!"));
+		return FReply::Handled();
+	}
+
 	TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
 
 	TSharedRef<SWindow> SettingsWindow = SNew(SWindow)
 		.Title(NSLOCTEXT("WraithX", "SettingsTitle", "WraithX Settings"))
-		.ClientSize(FVector2D(600, 400))
+		.ClientSize(FVector2D(800, 550))
 		.SupportsMaximize(false)
 		.SupportsMinimize(false)
 		.SizingRule(ESizingRule::FixedSize)
 		.IsTopmostWindow(true);
 
-	TSharedRef<SSettingsDialog> SettingsDialog = SNew(SSettingsDialog);
-	// .ViewModel(ViewModel)
+	TSharedRef<SSettingsDialog> SettingsDialog = SNew(SSettingsDialog, Settings);
 
 	SettingsWindow->SetContent(SettingsDialog);
 

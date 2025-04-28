@@ -4,7 +4,11 @@
 #include "CDN/CoDCDNDownloaderV2.h"
 #include "Database/CoDDatabaseService.h"
 #include "Interface/IMemoryReader.h"
+#include "MapImporter/XSub.h"
 #include "Structures/MW6GameStructures.h"
+#include "WraithX/LocateGameInfo.h"
+#include "WraithX/WraithSettings.h"
+#include "WraithX/WraithSettingsManager.h"
 
 FModernWarfare6AssetDiscoverer::FModernWarfare6AssetDiscoverer()
 {
@@ -55,7 +59,8 @@ TArray<FAssetPoolDefinition> FModernWarfare6AssetDiscoverer::GetAssetPools() con
 		{21, EWraithAssetType::Image, TEXT("XImage")},
 		{7, EWraithAssetType::Animation, TEXT("XAnim")},
 		{11, EWraithAssetType::Material, TEXT("XMaterial")},
-		{193, EWraithAssetType::Sound, TEXT("XSound")}
+		{193, EWraithAssetType::Sound, TEXT("XSound")},
+		{50, EWraithAssetType::Map, TEXT("XMap")}
 	};
 }
 
@@ -63,6 +68,33 @@ int32 FModernWarfare6AssetDiscoverer::DiscoverAssetsInPool(const FAssetPoolDefin
                                                            FAssetDiscoveredDelegate OnAssetDiscovered)
 {
 	if (!Reader || !Reader->IsValid() || !ParasyteState.IsValid()) return 0;
+
+	const UWraithSettings* Settings = GEditor->GetEditorSubsystem<UWraithSettingsManager>()->GetSettings();
+
+	if (Settings && !Settings->General.bLoadModels && PoolDefinition.AssetType == EWraithAssetType::Model)
+	{
+		return 0;
+	}
+	if (Settings && !Settings->General.bLoadAnimations && PoolDefinition.AssetType == EWraithAssetType::Animation)
+	{
+		return 0;
+	}
+	if (Settings && !Settings->General.bLoadAudio && PoolDefinition.AssetType == EWraithAssetType::Sound)
+	{
+		return 0;
+	}
+	if (Settings && !Settings->General.bLoadMaterials && PoolDefinition.AssetType == EWraithAssetType::Material)
+	{
+		return 0;
+	}
+	if (Settings && !Settings->General.bLoadTextures && PoolDefinition.AssetType == EWraithAssetType::Image)
+	{
+		return 0;
+	}
+	if (Settings && !Settings->General.bLoadMaps && PoolDefinition.AssetType == EWraithAssetType::Map)
+	{
+		return 0;
+	}
 
 	FXAssetPool64 PoolHeader;
 	if (!ReadAssetPoolHeader(PoolDefinition.PoolIdentifier, PoolHeader))
@@ -92,26 +124,46 @@ int32 FModernWarfare6AssetDiscoverer::DiscoverAssetsInPool(const FAssetPoolDefin
 			switch (PoolDefinition.AssetType)
 			{
 			case EWraithAssetType::Model:
-				DiscoverModelAssets(CurrentNode, OnAssetDiscovered);
-				break;
+				{
+					DiscoverModelAssets(CurrentNode, OnAssetDiscovered);
+					DiscoveredCount++;
+					break;
+				}
 			case EWraithAssetType::Image:
-				DiscoverImageAssets(CurrentNode, OnAssetDiscovered);
-				break;
+				{
+					DiscoverImageAssets(CurrentNode, OnAssetDiscovered);
+					DiscoveredCount++;
+					break;
+				}
 			case EWraithAssetType::Animation:
-				DiscoverAnimAssets(CurrentNode, OnAssetDiscovered);
-				break;
+				{
+					DiscoverAnimAssets(CurrentNode, OnAssetDiscovered);
+					DiscoveredCount++;
+					break;
+				}
 			case EWraithAssetType::Material:
-				DiscoverMaterialAssets(CurrentNode, OnAssetDiscovered);
-				break;
+				{
+					DiscoverMaterialAssets(CurrentNode, OnAssetDiscovered);
+					DiscoveredCount++;
+					break;
+				}
 			case EWraithAssetType::Sound:
-				DiscoverSoundAssets(CurrentNode, OnAssetDiscovered);
-				break;
+				{
+					DiscoverSoundAssets(CurrentNode, OnAssetDiscovered);
+					DiscoveredCount++;
+					break;
+				}
+			case EWraithAssetType::Map:
+				{
+					DiscoverMapAssets(CurrentNode, OnAssetDiscovered);
+					DiscoveredCount++;
+					break;
+				}
 			default:
 				UE_LOG(LogTemp, Warning, TEXT("No discovery logic for asset type %d in pool %s"),
 				       (int)PoolDefinition.AssetType, *PoolDefinition.PoolName);
 				break;
 			}
-			DiscoveredCount++;
 		}
 		CurrentNodePtr = CurrentNode.Next;
 	}
@@ -167,7 +219,7 @@ void FModernWarfare6AssetDiscoverer::DiscoverModelAssets(FXAsset64 AssetNode,
 			                           ? EWraithAssetStatus::Placeholder
 			                           : EWraithAssetStatus::Loaded;
 
-		OnAssetDiscovered.ExecuteIfBound(LoadedModel);
+		OnAssetDiscovered.ExecuteIfBound(StaticCastSharedPtr<FCoDAsset>(LoadedModel));
 	};
 
 	if (ModelHeader.NamePtr != 0)
@@ -268,6 +320,18 @@ void FModernWarfare6AssetDiscoverer::DiscoverSoundAssets(FXAsset64 AssetNode,
 			LoadedSound->bIsFileEntry = false;
 			LoadedSound->Length = 1000.0f * (LoadedSound->FrameCount /
 				static_cast<float>(LoadedSound->FrameRate));
+		},
+		OnAssetDiscovered
+	);
+}
+
+void FModernWarfare6AssetDiscoverer::DiscoverMapAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered)
+{
+	ProcessGenericAssetNode<FMW6GfxWorld, FCoDMap>(
+		AssetNode, EWraithAssetType::Map, TEXT("xmap"),
+		[this](const FMW6GfxWorld& WorldHeader, TSharedPtr<FCoDMap> LoadedMap)
+		{
+			Reader->ReadString(WorldHeader.BaseName, LoadedMap->AssetName);
 		},
 		OnAssetDiscovered
 	);

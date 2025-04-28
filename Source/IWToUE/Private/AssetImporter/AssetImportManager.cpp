@@ -2,10 +2,10 @@
 
 #include "AssetImporter/AnimationImporter.h"
 #include "AssetImporter/ImageImporter.h"
+#include "AssetImporter/MapImporter.h"
 #include "AssetImporter/MaterialImporter.h"
 #include "AssetImporter/ModelImporter.h"
 #include "AssetImporter/SoundImporter.h"
-#include "Database/CoDDatabaseService.h"
 #include "GameInfo/GameAssetHandlerFactory.h"
 #include "WraithX/CoDAssetType.h"
 #include "WraithX/GameProcess.h"
@@ -121,6 +121,7 @@ void FAssetImportManager::SetupAssetImporters()
 	AssetImporters.Emplace(EWraithAssetType::Model, MakeShared<FModelImporter>());
 	AssetImporters.Emplace(EWraithAssetType::Sound, MakeShared<FSoundImporter>());
 	AssetImporters.Emplace(EWraithAssetType::Material, MakeShared<FMaterialImporter>());
+	AssetImporters.Emplace(EWraithAssetType::Map, MakeShared<FMapImporter>());
 }
 
 void FAssetImportManager::UpdateGameHandler()

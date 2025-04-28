@@ -106,6 +106,7 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 
 		FMeshDescription MeshDescription;
 		bool bPopulateSuccess = PopulateMeshDescriptionFromCastModel(
+			Root,
 			ModelInfo,
 			MeshDescription,
 			Options,
@@ -147,9 +148,9 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 
 		// Set Screen Size for this LOD
 		// Map distance to screen size (larger distance -> smaller screen size)
-		float ScreenSize = FMath::Clamp(10 / FMath::Max(1.0f, LodInfo.Distance), 0.01f, 1.0f);
-		SrcModel.ScreenSize.Default = ScreenSize;
-		UE_LOG(LogCast, Log, TEXT("  LOD %d ScreenSize set to: %f"), LodIndex, SrcModel.ScreenSize.Default);
+		// float ScreenSize = FMath::Clamp(10 / FMath::Max(1.0f, LodInfo.Distance), 0.01f, 1.0f);
+		// SrcModel.ScreenSize.Default = ScreenSize;
+		// UE_LOG(LogCast, Log, TEXT("  LOD %d ScreenSize set to: %f"), LodIndex, SrcModel.ScreenSize.Default);
 
 		FMeshDescription* StaticMeshDescription = StaticMesh->CreateMeshDescription(LodIndex);
 		if (StaticMeshDescription)
@@ -428,6 +429,7 @@ USkeletalMesh* FDefaultCastMeshImporter::ImportSkeletalMesh(FCastScene& CastScen
 		LodImportData.RefBonesBinary = RefBonesBinary;
 
 		bool bPopulateSuccess = PopulateSkeletalMeshImportData(
+			Root,
 			CurrentLodModelInfo,
 			LodImportData,
 			Options,
@@ -581,6 +583,7 @@ USkeletalMesh* FDefaultCastMeshImporter::ImportSkeletalMesh(FCastScene& CastScen
 }
 
 bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
+	const FCastRoot& Root,
 	const FCastModelInfo& ModelInfo,
 	FMeshDescription& OutMeshDescription,
 	const FCastImportOptions& Options,
@@ -651,7 +654,6 @@ bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
 
 		if (TPair<FName, UMaterialInterface*>* FoundMaterialInfo = SharedMaterialMap.Find(Mesh.MaterialHash))
 		{
-			// Material already processed (likely by LOD0 or another mesh in this LOD), reuse slot name and material
 			MaterialSlotName = FoundMaterialInfo->Key;
 			UnrealMaterial = FoundMaterialInfo->Value;
 			if (FPolygonGroupID* FoundGroupID = CurrentLodMaterialHashToPolygonGroup.Find(Mesh.MaterialHash))
@@ -667,23 +669,14 @@ bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
 		}
 		else
 		{
-			// First time encountering this material hash across all LODs
 			PolygonGroupID = OutMeshDescription.CreatePolygonGroup();
 			CurrentLodMaterialHashToPolygonGroup.Add(Mesh.MaterialHash, PolygonGroupID);
 
-			const uint32* CastMaterialIndexPtr = ModelInfo.MaterialMap.Find(Mesh.MaterialHash);
-			if (!CastMaterialIndexPtr || !ModelInfo.Materials.IsValidIndex(*CastMaterialIndexPtr))
+			if (Root.Materials.IsValidIndex(Mesh.MaterialIndex) &&
+				Root.Materials[Mesh.MaterialIndex].MaterialHash == Mesh.MaterialHash)
 			{
-				UE_LOG(LogCast, Error,
-				       TEXT(
-					       "Material hash %llu found on mesh %s but not found in ModelInfo MaterialMap/Materials array. Using default material."
-				       ), Mesh.MaterialHash, *Mesh.Name);
-				UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
-				MaterialSlotName = FName(FString::Printf(TEXT("DefaultMaterial_%llu"), Mesh.MaterialHash));
-			}
-			else
-			{
-				const FCastMaterialInfo& CastMaterial = ModelInfo.Materials[*CastMaterialIndexPtr];
+				const FCastMaterialInfo& CastMaterial = Root.Materials[Mesh.MaterialIndex];
+
 				MaterialSlotName = FName(CastMaterial.Name);
 				FName OriginalSlotName = MaterialSlotName;
 				int32 Suffix = 1;
@@ -692,12 +685,15 @@ bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
 					MaterialSlotName = FName(FString::Printf(TEXT("%s_%d"), *OriginalSlotName.ToString(), Suffix++));
 				}
 				UniqueMaterialSlotNames.Add(MaterialSlotName);
+
 				UnrealMaterial = MaterialImporter->CreateMaterialInstance(CastMaterial, Options, AssetOuter);
 				if (!UnrealMaterial)
 				{
 					UE_LOG(LogCast, Warning,
-					       TEXT("Failed to create material instance '%s' for mesh '%s'. Using default material."),
-					       *CastMaterial.Name, *Mesh.Name);
+					       TEXT(
+						       "Failed to create material instance '%s' for mesh '%s' (Hash: %llu). Using default material."
+					       ),
+					       *CastMaterial.Name, *Mesh.Name, Mesh.MaterialHash);
 					UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
 				}
 				else if (UnrealMaterial != UMaterial::GetDefaultMaterial(MD_Surface))
@@ -705,9 +701,28 @@ bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
 					OutCreatedObjects.Add(UnrealMaterial);
 				}
 			}
-			// Add to the shared map for future lookups (across LODs)
+			else
+			{
+				UE_LOG(LogCast, Error,
+				       TEXT(
+					       "Invalid MaterialIndex %d or hash mismatch for MaterialHash %llu on mesh %s. Check pre-processing step. Using default material."
+				       ),
+				       Mesh.MaterialIndex, Mesh.MaterialHash, *Mesh.Name);
+				UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
+
+				MaterialSlotName = FName(FString::Printf(TEXT("DefaultMaterial_%llu"), Mesh.MaterialHash));
+				FName OriginalSlotName = MaterialSlotName;
+				int32 Suffix = 1;
+				while (UniqueMaterialSlotNames.Contains(MaterialSlotName))
+				{
+					MaterialSlotName = FName(FString::Printf(TEXT("%s_%d"), *OriginalSlotName.ToString(), Suffix++));
+				}
+				UniqueMaterialSlotNames.Add(MaterialSlotName);
+			}
+
 			SharedMaterialMap.Add(Mesh.MaterialHash,
 			                      TPair<FName, UMaterialInterface*>(MaterialSlotName, UnrealMaterial));
+
 			PolygonGroupImportedMaterialSlotNames[PolygonGroupID] = MaterialSlotName;
 		}
 
@@ -818,7 +833,8 @@ bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
 	return true;
 }
 
-bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastModelInfo& ModelInfo,
+bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& Root,
+                                                              const FCastModelInfo& ModelInfo,
                                                               FSkeletalMeshImportData& OutImportData,
                                                               const FCastImportOptions& Options,
                                                               ICastMaterialImporter* MaterialImporter,
@@ -869,50 +885,75 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastModelIn
 			UMaterialInterface* UnrealMaterial = nullptr;
 			FString MaterialImportName;
 
-			const uint32* CastMaterialIndexPtr = ModelInfo.MaterialMap.Find(Mesh.MaterialHash);
-			if (!CastMaterialIndexPtr || !ModelInfo.Materials.IsValidIndex(*CastMaterialIndexPtr))
+			if (int32* FoundFinalIndex = SharedMaterialMap.Find(Mesh.MaterialHash))
 			{
-				UE_LOG(LogCast, Warning,
-				       TEXT(
-					       "Material hash %llu on mesh %s not found in ModelInfo MaterialMap/Materials array. Using default material."
-				       ), Mesh.MaterialHash, *Mesh.Name);
-				UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
-				MaterialImportName = FString::Printf(TEXT("DefaultMaterial_%llu"), Mesh.MaterialHash);
-			}
-			else
-			{
-				const FCastMaterialInfo& CastMaterial = ModelInfo.Materials[*CastMaterialIndexPtr];
-				MaterialImportName = CastMaterial.Name;
-				UnrealMaterial = MaterialImporter->CreateMaterialInstance(CastMaterial, Options, SkeletalMesh);
-				if (!UnrealMaterial)
+				FinalMaterialIndex = *FoundFinalIndex;
+				if (FinalMaterials.IsValidIndex(FinalMaterialIndex))
 				{
-					UE_LOG(LogCast, Warning, TEXT("Failed to create material instance %s for mesh %s. Using default."),
-					       *MaterialImportName, *Mesh.Name);
+					UnrealMaterial = FinalMaterials[FinalMaterialIndex].Material.Get();
+					MaterialImportName = FinalMaterials[FinalMaterialIndex].MaterialImportName;
+				}
+				else
+				{
+					UE_LOG(LogCast, Error,
+					       TEXT(
+						       "SharedMaterialMap points to invalid FinalMaterials index %d for hash %llu. Re-resolving."
+					       ), FinalMaterialIndex, Mesh.MaterialHash);
+					FinalMaterialIndex = INDEX_NONE;
+				}
+			}
+
+			if (FinalMaterialIndex == INDEX_NONE)
+			{
+				if (Root.Materials.IsValidIndex(Mesh.MaterialIndex) &&
+					Root.Materials[Mesh.MaterialIndex].MaterialHash == Mesh.MaterialHash)
+				{
+					const FCastMaterialInfo& CastMaterial = Root.Materials[Mesh.MaterialIndex];
+					MaterialImportName = CastMaterial.Name;
+					UnrealMaterial = MaterialImporter->CreateMaterialInstance(CastMaterial, Options, SkeletalMesh);
+					if (!UnrealMaterial)
+					{
+						UE_LOG(LogCast, Warning,
+						       TEXT("Failed to create material instance %s for mesh %s (Hash: %llu). Using default."),
+						       *MaterialImportName, *Mesh.Name, Mesh.MaterialHash);
+						UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
+					}
+					else if (UnrealMaterial != UMaterial::GetDefaultMaterial(MD_Surface))
+					{
+						OutCreatedObjects.Add(UnrealMaterial);
+					}
+				}
+				else
+				{
+					UE_LOG(LogCast, Error,
+					       TEXT(
+						       "Invalid MaterialIndex %d or hash mismatch for MaterialHash %llu on mesh %s. Check pre-processing. Using default material."
+					       ),
+					       Mesh.MaterialIndex, Mesh.MaterialHash, *Mesh.Name);
 					UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
+					MaterialImportName = FString::Printf(TEXT("DefaultMaterial_%llu"), Mesh.MaterialHash);
 				}
-				else if (UnrealMaterial != UMaterial::GetDefaultMaterial(MD_Surface))
-				{
-					OutCreatedObjects.Add(UnrealMaterial);
-				}
+
+				SkeletalMeshImportData::FMaterial NewFinalMaterialData;
+				NewFinalMaterialData.Material = UnrealMaterial;
+				NewFinalMaterialData.MaterialImportName = MaterialImportName;
+				FinalMaterialIndex = FinalMaterials.Add(NewFinalMaterialData);
+
+				SharedMaterialMap.Add(Mesh.MaterialHash, FinalMaterialIndex);
 			}
-			SkeletalMeshImportData::FMaterial NewFinalMaterialData;
-			NewFinalMaterialData.Material = UnrealMaterial;
-			NewFinalMaterialData.MaterialImportName = MaterialImportName;
-			FinalMaterialIndex = FinalMaterials.Add(NewFinalMaterialData);
-			SharedMaterialMap.Add(Mesh.MaterialHash, FinalMaterialIndex);
-			if (LocalMaterialIndex == INDEX_NONE && UnrealMaterial != nullptr)
+
+			if (UnrealMaterial != nullptr)
 			{
 				SkeletalMeshImportData::FMaterial NewLocalMaterialData;
 				NewLocalMaterialData.Material = UnrealMaterial;
 				NewLocalMaterialData.MaterialImportName = MaterialImportName;
 				LocalMaterialIndex = OutImportData.Materials.Add(NewLocalMaterialData);
-				LodMaterialMap.Add(Mesh.MaterialHash, LocalMaterialIndex);
 			}
-			else if (LocalMaterialIndex == INDEX_NONE)
+			else
 			{
-				UE_LOG(LogCast, Error, TEXT("Failed to resolve material for hash %llu. Assigning local index 0."),
+				UE_LOG(LogCast, Error, TEXT("Failed to resolve UnrealMaterial for hash %llu. Assigning local index 0."),
 				       Mesh.MaterialHash);
-				if (OutImportData.Materials.Num() == 0)
+				if (OutImportData.Materials.IsEmpty())
 				{
 					SkeletalMeshImportData::FMaterial DefaultMatData;
 					DefaultMatData.Material = UMaterial::GetDefaultMaterial(MD_Surface);
@@ -920,11 +961,9 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastModelIn
 					OutImportData.Materials.Add(DefaultMatData);
 				}
 				LocalMaterialIndex = 0;
-				if (!LodMaterialMap.Contains(Mesh.MaterialHash))
-				{
-					LodMaterialMap.Add(Mesh.MaterialHash, LocalMaterialIndex);
-				}
 			}
+
+			LodMaterialMap.Add(Mesh.MaterialHash, LocalMaterialIndex);
 		}
 
 		// Faces and Wedges

@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+struct FCastMaterialInfo;
 struct FCastModelLod;
 struct FCastAnimationInfo;
 struct FCastModelInfo;
@@ -28,4 +29,9 @@ public:
 	TArray<FCastAnimationInfo> Animations;
 	TArray<FCastInstanceInfo> Instances;
 	TArray<FCastMetadataInfo> Metadata;
+
+	TArray<FCastMaterialInfo> Materials;
+	// 哈希对应以上的index
+	TMap<uint64, uint32> MaterialMap;
 };
+

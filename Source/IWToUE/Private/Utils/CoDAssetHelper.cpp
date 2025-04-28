@@ -14,6 +14,7 @@
 #include <windows.h>
 #include "DirectXTex.h"
 #include "DDS.h"
+#include "Interface/IGameAssetHandler.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 
 namespace FCoDAssetHelper
@@ -21,7 +22,8 @@ namespace FCoDAssetHelper
 	bool GetUnrealFormat(DXGI_FORMAT DxgiFormat, EPixelFormat& OutPixelFormat, ETextureSourceFormat& OutSourceFormat,
 	                     bool& bOutSRGB)
 	{
-		bOutSRGB = DirectX::IsSRGB(DxgiFormat);
+		// DX解码时会自动转换srgb，这里再让UE转换会导致图像偏暗
+		// bOutSRGB = DirectX::IsSRGB(DxgiFormat);
 		OutPixelFormat = PF_Unknown;
 		OutSourceFormat = TSF_Invalid;
 
@@ -33,15 +35,24 @@ namespace FCoDAssetHelper
 			OutPixelFormat = PF_A2B10G10R10;
 			break;
 		case DXGI_FORMAT_R8G8B8A8_UNORM:
+			OutSourceFormat = TSF_BGRA8;
+			OutPixelFormat = PF_R8G8B8A8;
+		// bOutSRGB = false;
+			break;
 		case DXGI_FORMAT_B8G8R8A8_UNORM:
 			OutSourceFormat = TSF_BGRA8;
 			OutPixelFormat = PF_B8G8R8A8;
+		// bOutSRGB = false;
 			break;
 		case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+			OutSourceFormat = TSF_BGRA8;
+			OutPixelFormat = PF_R8G8B8A8;
+		// bOutSRGB = true;
+			break;
 		case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
 			OutSourceFormat = TSF_BGRA8;
 			OutPixelFormat = PF_B8G8R8A8;
-			bOutSRGB = true;
+		// bOutSRGB = true;
 			break;
 		case DXGI_FORMAT_R8_UNORM:
 		case DXGI_FORMAT_A8_UNORM:
@@ -60,41 +71,67 @@ namespace FCoDAssetHelper
 		// --- Compressed Formats ---
 		case DXGI_FORMAT_BC1_UNORM:
 		case DXGI_FORMAT_BC1_UNORM_SRGB:
+			OutSourceFormat = TSF_BGRA8;
+			OutPixelFormat = PF_DXT1;
+			break;
 		case DXGI_FORMAT_BC2_UNORM:
 		case DXGI_FORMAT_BC2_UNORM_SRGB:
+			OutSourceFormat = TSF_BGRA8;
+			OutPixelFormat = PF_DXT3;
+			break;
 		case DXGI_FORMAT_BC3_UNORM:
 		case DXGI_FORMAT_BC3_UNORM_SRGB:
-		case DXGI_FORMAT_BC7_UNORM:
-		case DXGI_FORMAT_BC7_UNORM_SRGB:
 			OutSourceFormat = TSF_BGRA8;
-			OutPixelFormat = PF_B8G8R8A8;
-			bOutSRGB = DirectX::IsSRGB(DxgiFormat);
+			OutPixelFormat = PF_DXT5;
 			break;
 		case DXGI_FORMAT_BC4_UNORM:
 		case DXGI_FORMAT_BC4_SNORM:
 			OutSourceFormat = TSF_G8;
-			OutPixelFormat = PF_G8;
+			OutPixelFormat = PF_BC4;
+		// bOutSRGB = false;
 			break;
 		case DXGI_FORMAT_BC5_UNORM:
 		case DXGI_FORMAT_BC5_SNORM:
 			OutSourceFormat = TSF_BGRA8;
-			OutPixelFormat = PF_B8G8R8A8;
+			OutPixelFormat = PF_BC5;
+		// bOutSRGB = false;
 			break;
 		case DXGI_FORMAT_BC6H_UF16:
 		case DXGI_FORMAT_BC6H_SF16:
 			OutSourceFormat = TSF_RGBA16F;
-			OutPixelFormat = PF_FloatRGBA;
+			OutPixelFormat = PF_BC6H;
+		// bOutSRGB = false;
+			break;
+		case DXGI_FORMAT_BC7_UNORM:
+			OutSourceFormat = TSF_BGRA8;
+			OutPixelFormat = PF_BC7;
+			break;
+		case DXGI_FORMAT_BC7_UNORM_SRGB:
+			OutSourceFormat = TSF_BGRA8;
+			OutPixelFormat = PF_BC7;
+		// bOutSRGB = true;
+			break;
+		case DXGI_FORMAT_R16_FLOAT:
+			OutSourceFormat = TSF_R16F;
+			OutPixelFormat = PF_R16F;
+		// bOutSRGB = false;
+			break;
+		case DXGI_FORMAT_R16_UNORM:
+			OutSourceFormat = TSF_G16;
+			OutPixelFormat = PF_G16;
+		// bOutSRGB = false;
 			break;
 
 		default:
-			UE_LOG(LogTemp, Warning, TEXT("Unsupported DXGI_FORMAT: %d"), static_cast<int>(DxgiFormat));
+			UE_LOG(LogTemp, Warning, TEXT("GetUnrealFormat: Unsupported DXGI_FORMAT: %d"),
+			       static_cast<int>(DxgiFormat));
 			return false;
 		}
 
 		return true;
 	}
 
-	TextureCompressionSettings GetCompressionSettingsFromDXGI(DXGI_FORMAT DxgiFormat)
+	TextureCompressionSettings GetCompressionSettingsFromDXGI(DXGI_FORMAT DxgiFormat, bool bIsSRGB)
 	{
 		switch (DxgiFormat)
 		{
@@ -112,6 +149,10 @@ namespace FCoDAssetHelper
 			return TC_Grayscale;
 		case DXGI_FORMAT_BC4_SNORM:
 			return TC_Displacementmap;
+		case DXGI_FORMAT_R8_UNORM:
+		case DXGI_FORMAT_A8_UNORM:
+			return TC_Alpha;
+
 		case DXGI_FORMAT_BC5_UNORM:
 		case DXGI_FORMAT_BC5_SNORM:
 			return TC_Normalmap;
@@ -120,9 +161,6 @@ namespace FCoDAssetHelper
 		case DXGI_FORMAT_BC6H_SF16:
 			return TC_HDR;
 
-		case DXGI_FORMAT_R8_UNORM:
-		case DXGI_FORMAT_A8_UNORM:
-			return TC_Alpha;
 		case DXGI_FORMAT_R8_SNORM:
 			return TC_Displacementmap;
 
@@ -189,18 +227,25 @@ UTexture2D* FCoDAssetHelper::CreateTextureFromDDSData(const TArray<uint8>& DDSDa
 	}
 
 	DXGI_FORMAT TargetDxgiFormat = DXGI_FORMAT_UNKNOWN;
-
 	switch (UnrealSourceFormat)
 	{
-	case TSF_BGRA8: TargetDxgiFormat = bSRGB ? DXGI_FORMAT_B8G8R8A8_UNORM_SRGB : DXGI_FORMAT_B8G8R8A8_UNORM;
+	case TSF_BGRA8:
+		TargetDxgiFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
 		break;
-	case TSF_RGBA16F: TargetDxgiFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+	case TSF_RGBA16F:
+		TargetDxgiFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 		break;
-	case TSF_G8: TargetDxgiFormat = DXGI_FORMAT_R8_UNORM;
+	case TSF_G8:
+		TargetDxgiFormat = DXGI_FORMAT_R8_UNORM;
 		break;
-	case TSF_RGBA32F: TargetDxgiFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	case TSF_RGBA32F:
+		TargetDxgiFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
 		break;
-	case TSF_R16F: TargetDxgiFormat = DXGI_FORMAT_R16_FLOAT;
+	case TSF_G16:
+		TargetDxgiFormat = DXGI_FORMAT_R16_UNORM;
+		break;
+	case TSF_R16F:
+		TargetDxgiFormat = DXGI_FORMAT_R16_FLOAT;
 		break;
 	default:
 		UE_LOG(LogTemp, Error,
@@ -259,6 +304,15 @@ UTexture2D* FCoDAssetHelper::CreateTextureFromDDSData(const TArray<uint8>& DDSDa
 		return nullptr;
 	}
 
+	if (!SourceImagesPtr || SourceImageCount == 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: No valid image data available after processing for %s"),
+		       *TextureName);
+		if (bCleanupProcessed) ProcessedImageData.Release();
+		ScratchImage.Release();
+		return nullptr;
+	}
+
 	FString PackageName = FPaths::Combine(PackagePath, TextureName);
 	UPackage* Package = CreatePackage(*PackageName);
 	Package->FullyLoad();
@@ -276,90 +330,87 @@ UTexture2D* FCoDAssetHelper::CreateTextureFromDDSData(const TArray<uint8>& DDSDa
 
 	NewTexture->SetPlatformData(nullptr);
 	NewTexture->SRGB = bSRGB;
-	NewTexture->CompressionSettings = GetCompressionSettingsFromDXGI(Metadata.format);
+	NewTexture->CompressionSettings = GetCompressionSettingsFromDXGI(Metadata.format, bSRGB);
 	NewTexture->Filter = TF_Default;
-	NewTexture->AddressX = TA_Clamp;
-	NewTexture->AddressY = TA_Clamp;
+	NewTexture->AddressX = TA_Wrap;
+	NewTexture->AddressY = TA_Wrap;
 	NewTexture->LODGroup = TEXTUREGROUP_World;
 
 	if (NewTexture->CompressionSettings == TC_Normalmap)
 	{
 		NewTexture->LODGroup = TEXTUREGROUP_WorldNormalMap;
+		NewTexture->SRGB = false;
 	}
 	else if (NewTexture->CompressionSettings == TC_HDR || NewTexture->CompressionSettings == TC_HDR_Compressed)
 	{
 		NewTexture->LODGroup = TEXTUREGROUP_World;
+		NewTexture->SRGB = false;
+	}
+	else if (NewTexture->CompressionSettings == TC_Grayscale || NewTexture->CompressionSettings == TC_Alpha ||
+		NewTexture->CompressionSettings == TC_Displacementmap)
+	{
+		NewTexture->SRGB = false;
 	}
 
 	// Initialize Source Data
+	NewTexture->PreEditChange(nullptr);
 	const DirectX::TexMetadata& FinalMetadata = *SourceMetadataPtr;
 	NewTexture->Source.Init(
 		FinalMetadata.width,
 		FinalMetadata.height,
 		FinalMetadata.depth > 1 ? FinalMetadata.depth : (FinalMetadata.arraySize > 1 ? FinalMetadata.arraySize : 1),
-		FinalMetadata.mipLevels,
+		1,
 		UnrealSourceFormat
 	);
 
 	uint32 DestSliceIndex = 0;
-	for (size_t MipIndex = 0; MipIndex < FinalMetadata.mipLevels; ++MipIndex)
-	{
-		const size_t ImageIndex = FinalMetadata.ComputeIndex(MipIndex, DestSliceIndex, 0);
-		if (ImageIndex >= SourceImageCount)
-		{
-			UE_LOG(LogTemp, Warning,
-			       TEXT("CreateTextureFromDDSData: Mip index %zu out of bounds for image count %zu in %s"), MipIndex,
-			       SourceImageCount, *TextureName);
-			continue;
-		}
+	const size_t ImageIndex = FinalMetadata.ComputeIndex(0, DestSliceIndex, 0);
 
-		const DirectX::Image& MipImage = SourceImagesPtr[ImageIndex];
-		uint8* DestMipData = NewTexture->Source.LockMip(MipIndex);
-		if (!DestMipData)
-		{
-			UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Failed to lock Mip %zu for texture %s"), MipIndex,
-			       *TextureName);
-			NewTexture->Source.UnlockMip(0);
-			NewTexture->MarkAsGarbage();
-			if (bCleanupProcessed) ProcessedImageData.Release();
-			return nullptr;
-		}
-		SIZE_T ExpectedMipDataSize = NewTexture->Source.CalcMipSize(MipIndex);
-		SIZE_T SourceMipDataSize = MipImage.slicePitch;
-		if (MipImage.height > 1 && MipImage.rowPitch * MipImage.height != MipImage.slicePitch)
-		{
-			SIZE_T CalculatedSize = MipImage.rowPitch * MipImage.height;
-			UE_LOG(LogTemp, Warning,
-			       TEXT(
-				       "CreateTextureFromDDSData: Mip %zu slicePitch (%zu) differs from rowPitch*height (%zu) for %s. Using calculated size."
-			       ),
-			       MipIndex, MipImage.slicePitch, CalculatedSize, *TextureName);
-			SourceMipDataSize = CalculatedSize;
-		}
-		if (SourceMipDataSize == 0 || MipImage.pixels == nullptr)
-		{
-			UE_LOG(LogTemp, Warning,
-			       TEXT("CreateTextureFromDDSData: Mip %zu has zero size or null data in source image for %s"),
-			       MipIndex, *TextureName);
-			NewTexture->Source.UnlockMip(MipIndex);
-			continue;
-		}
-		if (ExpectedMipDataSize != SourceMipDataSize)
-		{
-			UE_LOG(LogTemp, Warning,
-			       TEXT(
-				       "CreateTextureFromDDSData: Mip %zu data size mismatch for %s. Expected: %llu, Got: %llu. Clamping copy size."
-			       ),
-			       MipIndex, *TextureName, ExpectedMipDataSize, SourceMipDataSize);
-			SIZE_T CopySize = FMath::Min(ExpectedMipDataSize, SourceMipDataSize);
-			FMemory::Memcpy(DestMipData, MipImage.pixels, CopySize);
-		}
-		else
-		{
-			FMemory::Memcpy(DestMipData, MipImage.pixels, SourceMipDataSize);
-		}
-		NewTexture->Source.UnlockMip(MipIndex);
+	if (ImageIndex >= SourceImageCount)
+	{
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Cannot find image index for Mip 0 in %s"), *TextureName);
+		NewTexture->MarkAsGarbage();
+		if (bCleanupProcessed) ProcessedImageData.Release();
+		ScratchImage.Release();
+		return nullptr;
 	}
+
+	const DirectX::Image& MipImage = SourceImagesPtr[ImageIndex];
+	uint8* DestMipData = NewTexture->Source.LockMip(0);
+	if (!DestMipData)
+	{
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Failed to lock Mip 0 for texture %s"),
+		       *TextureName);
+		NewTexture->Source.UnlockMip(0);
+		NewTexture->MarkAsGarbage();
+		if (bCleanupProcessed) ProcessedImageData.Release();
+		return nullptr;
+	}
+	SIZE_T ExpectedMipDataSize = NewTexture->Source.CalcMipSize(0);
+	SIZE_T SourceMipDataSize = MipImage.slicePitch;
+	if (MipImage.height > 1 && MipImage.rowPitch * MipImage.height != MipImage.slicePitch)
+	{
+		SIZE_T CalculatedSize = MipImage.rowPitch * MipImage.height;
+		UE_LOG(LogTemp, Warning,
+		       TEXT(
+			       "CreateTextureFromDDSData: Mip 0 slicePitch (%zu) differs from rowPitch*height (%zu) for %s. Using calculated size."
+		       ), MipImage.slicePitch, CalculatedSize, *TextureName);
+		SourceMipDataSize = CalculatedSize;
+	}
+	if (ExpectedMipDataSize != SourceMipDataSize)
+	{
+		UE_LOG(LogTemp, Warning,
+		       TEXT(
+			       "CreateTextureFromDDSData: Mip 0 data size mismatch for %s. Expected: %llu, Got: %llu. Clamping copy size."
+		       ), *TextureName, ExpectedMipDataSize, SourceMipDataSize);
+		SIZE_T CopySize = FMath::Min(ExpectedMipDataSize, SourceMipDataSize);
+		FMemory::Memcpy(DestMipData, MipImage.pixels, CopySize);
+	}
+	else
+	{
+		FMemory::Memcpy(DestMipData, MipImage.pixels, SourceMipDataSize);
+	}
+	NewTexture->Source.UnlockMip(0);
 
 
 	if (bCleanupProcessed)
@@ -368,21 +419,17 @@ UTexture2D* FCoDAssetHelper::CreateTextureFromDDSData(const TArray<uint8>& DDSDa
 	}
 	ScratchImage.Release();
 
+	NewTexture->MipGenSettings = TMGS_FromTextureGroup;
+
+	NewTexture->Modify();
+	NewTexture->PostEditChange();
 	NewTexture->UpdateResource();
+
 	Package->MarkPackageDirty();
 
 	FAssetRegistryModule::AssetCreated(NewTexture);
 
-	// Save the package
-	// FSavePackageArgs SaveArgs;
-	// SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
-	// SaveArgs.SaveFlags = SAVE_Async; // Or SAVE_None
-	// FString PackageFileName = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
-	// UPackage::SavePackage(Package, NewTexture, *PackageFileName, SaveArgs);
-
 	NewTexture->ClearFlags(RF_MarkAsRootSet);
-
-	UE_LOG(LogTemp, Log, TEXT("CreateTextureFromDDSData: Successfully created texture %s"), *TextureName);
 	return NewTexture;
 }
 
@@ -504,9 +551,6 @@ TArray<uint8> FCoDAssetHelper::BuildDDSHeader(uint32 Width, uint32 Height, uint3
 	}
 	if (RequiredSizeBytes != HeaderData.Num())
 	{
-		UE_LOG(LogTemp, Warning,
-		       TEXT("BuildDDSHeader: Encoded header size (%zu) differs from initial calculation (%d). Resizing."),
-		       RequiredSizeBytes, HeaderData.Num());
 		HeaderData.SetNum(RequiredSizeBytes);
 	}
 	return HeaderData;
@@ -746,3 +790,4 @@ float HalfFloatHelper::ToFloat(uint16 Value)
 
 	return V.F;
 }
+

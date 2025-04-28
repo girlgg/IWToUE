@@ -1,7 +1,0 @@
-﻿#include "WraithX/SSettingsDialog.h"
-
-#include "SlateOptMacros.h"
-
-BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
-
-END_SLATE_FUNCTION_BUILD_OPTIMIZATION

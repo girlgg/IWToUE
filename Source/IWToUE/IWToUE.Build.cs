@@ -42,7 +42,8 @@ public class IWToUE : ModuleRules
 				"Projects",
 				"libOpus",
 				"RHI",
-				"RenderCore"
+				"RenderCore",
+				"EditorSubsystem"
 			}
 		);
 

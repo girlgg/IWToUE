@@ -241,7 +241,7 @@ void FWraithX::TranslateXModel(FCastModelInfo& OutModel, FWraithXModel& InModel,
 
 	TMap<FString, uint32> MaterialMap;
 
-	OutModel.Materials.Reserve(LodRef.Materials.Num());
+	// OutModel.Materials.Reserve(LodRef.Materials.Num());
 	for (int32 MatIdx = 0; MatIdx < LodRef.Materials.Num(); ++MatIdx)
 	{
 		FWraithXMaterial& MatRef = LodRef.Materials[MatIdx];
@@ -252,19 +252,19 @@ void FWraithX::TranslateXModel(FCastModelInfo& OutModel, FWraithXModel& InModel,
 		}
 		else
 		{
-			FCastMaterialInfo& MaterialInfo = OutModel.Materials.AddDefaulted_GetRef();
-			MaterialInfo.Name = MatRef.MaterialName;
+			// FCastMaterialInfo& MaterialInfo = OutModel.Materials.AddDefaulted_GetRef();
+			// MaterialInfo.Name = MatRef.MaterialName;
 
 			// TODO 加载材质
 			for (const FWraithXImage& Image : MatRef.Images)
 			{
-				FCastTextureInfo& Texture = MaterialInfo.Textures.AddDefaulted_GetRef();
-				Texture.TextureName = Image.ImageName;
+				// FCastTextureInfo& Texture = MaterialInfo.Textures.AddDefaulted_GetRef();
+				// Texture.TextureName = Image.ImageName;
 
 				FString TextureSemantic = FString::Printf(TEXT("unk_semantic_0x%x"), Image.SemanticHash);
-				Texture.TextureSemantic = TextureSemantic;
+				// Texture.TextureSemantic = TextureSemantic;
 			}
-			MaterialMap.Emplace(MatRef.MaterialName, OutModel.Materials.Num() - 1);
+			// MaterialMap.Emplace(MatRef.MaterialName, OutModel.Materials.Num() - 1);
 		}
 	}
 	if (InModel.IsModelStreamed)

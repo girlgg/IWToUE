@@ -42,22 +42,19 @@ struct FCastMeshInfo
 	TArray<FVector3f> VertexPositions{};
 	TArray<FVector3f> VertexNormals{};
 	TArray<FVector3f> VertexTangents{};
-	// TArray<TArray<uint32>> VertexColor;
 	TArray<uint32> VertexColor{};
-	// TArray<TArray<FVector2f>> VertexUV;
 	TArray<FVector2f> VertexUV{};
 	TArray<FCastWeightsData> VertexWeights;
-	// TODO：删除骨骼Buffer
 	TArray<uint32> VertexWeightBone{};
-	// TODO：删除权重值Buffer
 	TArray<float> VertexWeightValue{};
 	TArray<uint32> Faces{};
 	TArray<uint32> ColorLayer{};
 	uint32 UVLayer{};
 	uint32 MaxWeight{}; // 每个顶点被多少个骨骼影响权重
 	FString SkinningMethod{};
-	uint64 MaterialHash{};
-	int32 MaterialIndex;
+	uint64 MaterialHash = 0;
+	uint64 MaterialPtr = 0;
+	int32 MaterialIndex = 0;
 
 	FVector BBoxMax{0};
 	FVector BBoxMin{0};
@@ -74,6 +71,11 @@ struct FCastMeshInfo
 			BBoxMin.Y = FMath::Min(BBoxMin.Y, Pos.Y);
 			BBoxMin.Z = FMath::Min(BBoxMin.Z, Pos.Z);
 		}
+	}
+
+	int32 GetVertexCount() const
+	{
+		return VertexPositions.Num();
 	}
 };
 

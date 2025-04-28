@@ -2,6 +2,9 @@
 
 #include "Interface/IGameAssetHandler.h"
 
+struct FMW6XModel;
+struct FCastRoot;
+
 class FModernWarfare6AssetHandler : public IGameAssetHandler
 {
 public:
@@ -17,12 +20,14 @@ public:
 	virtual bool ReadImageData(TSharedPtr<FCoDImage> ImageInfo, TArray<uint8>& OutImageData, uint8& OutFormat) override;
 	virtual bool ReadImageDataFromPtr(uint64 ImageHandle, TArray<uint8>& OutImageData, uint8& OutFormat) override;
 	virtual bool ReadImageDataToTexture(uint64 ImageHandle, UTexture2D*& OutTexture, FString& ImageName,
-										FString ImagePath = TEXT("")) override;
+	                                    FString ImagePath = TEXT("")) override;
 	virtual bool ReadSoundData(TSharedPtr<FCoDSound> SoundInfo, FWraithXSound& OutSound) override;
 	virtual bool ReadMaterialData(TSharedPtr<FCoDMaterial> MaterialInfo, FWraithXMaterial& OutMaterial) override;
 	virtual bool ReadMaterialDataFromPtr(uint64 MaterialHandle, FWraithXMaterial& OutMaterial) override;
+	virtual bool ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWraithXMap& OutMapData) override;
 
-	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo) override;
+	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo,
+	                            const FCastRoot& InSceneRoot) override;
 	virtual bool TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) override;
 	virtual void ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) override;
 	virtual void ApplyDelta2DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) override;

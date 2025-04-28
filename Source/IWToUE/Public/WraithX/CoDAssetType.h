@@ -24,6 +24,7 @@ enum class EWraithAssetType : uint8
 	Material,
 	// A custom asset
 	Custom,
+	Map,
 	// An unknown asset, not loaded
 	Unknown,
 };
@@ -46,6 +47,8 @@ enum class EWraithAssetStatus : uint8
 
 struct FWraithAsset : public TSharedFromThis<FWraithAsset>
 {
+	virtual ~FWraithAsset() = default;
+
 	// The type of asset we have
 	EWraithAssetType AssetType{EWraithAssetType::Unknown};
 	// The name of this asset
@@ -79,13 +82,13 @@ struct FWraithAsset : public TSharedFromThis<FWraithAsset>
 struct FCoDAsset : FWraithAsset
 {
 	// Whether or not this is a file entry
-	bool bIsFileEntry{false};
+	bool bIsFileEntry = false;
 
 	// A pointer to the asset in memory
-	uint64 AssetPointer{};
+	uint64 AssetPointer = 0;
 
 	// The assets offset in the loaded pool
-	uint32 AssetLoadedIndex{};
+	uint32 AssetLoadedIndex = 0;
 };
 
 struct FCoDModel : FCoDAsset
@@ -102,6 +105,14 @@ struct FCoDModel : FCoDAsset
 	virtual FText GetAssetTypeText() const
 	{
 		return LOCTEXT("AssetType", "Model");
+	}
+};
+
+struct FCoDMap : FCoDAsset
+{
+	virtual FText GetAssetTypeText() const
+	{
+		return LOCTEXT("AssetType", "Map");
 	}
 };
 
@@ -276,6 +287,7 @@ struct FWraithXImage
 struct FWraithXMaterial
 {
 	uint64 MaterialHash;
+	uint64 MaterialPtr;
 	// The material name
 	FString MaterialName;
 	// The techset name
@@ -329,40 +341,59 @@ struct FWraithXModel
 	bool IsModelStreamed;
 
 	// The model bone count
-	uint32 BoneCount;
+	uint32 BoneCount = 0;
 	// The model root bone count
-	uint32 RootBoneCount;
+	uint32 RootBoneCount = 0;
 	// The model cosmetic bone count
-	uint32 CosmeticBoneCount;
+	uint32 CosmeticBoneCount = 0;
 	// The model blendshape count
-	uint32 BlendShapeCount;
+	uint32 BlendShapeCount = 0;
 
 	// A pointer to bone name string indicies
-	uint64 BoneIDsPtr;
+	uint64 BoneIDsPtr = 0;
 	// The size of the bone name index
-	uint8 BoneIndexSize;
+	uint8 BoneIndexSize = 0;
 
 	// A pointer to bone parent indicies
-	uint64 BoneParentsPtr;
+	uint64 BoneParentsPtr = 0;
 	// The size of the bone parent index
-	uint8 BoneParentSize;
+	uint8 BoneParentSize = 0;
 
 	// A pointer to local rotations
-	uint64 RotationsPtr;
+	uint64 RotationsPtr = 0;
 	// A pointer to local positions
-	uint64 TranslationsPtr;
+	uint64 TranslationsPtr = 0;
 
 	// A pointer to global matricies
-	uint64 BaseTransformPtr;
+	uint64 BaseTransformPtr = 0;
 
 	// A pointer to the bone collision data, hitbox offsets
-	uint64 BoneInfoPtr;
+	uint64 BoneInfoPtr = 0;
 
 	// A pointer to the blendshape names
-	uint64 BlendShapeNamesPtr;
+	uint64 BlendShapeNamesPtr = 0;
 
 	// A list of lods per this model
 	TArray<FWraithXModelLod> ModelLods;
+};
+struct FWraithMapMeshData
+{
+	FString MeshName;
+	FCastMeshInfo MeshData;
+};
+struct FWraithMapStaticModelInstance
+{
+	uint64 ModelAssetPtr;
+	FString InstanceName;
+	FTransform Transform;
+};
+struct FWraithXMap
+{
+	FString MapName;
+	TArray<FWraithMapMeshData> MapMeshes;
+	TArray<FCastMaterialInfo> MapMeshMaterials;
+	TMap<uint64, uint32> MapMeshMaterialMap;
+	TArray<FWraithMapStaticModelInstance> StaticModelInstances;
 };
 
 struct FMW6XAnimStreamInfo

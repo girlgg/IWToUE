@@ -239,61 +239,58 @@ void FCastImporter::AnalysisMaterial(const FString& ParentPath, FString Material
 	TArray<FCastRoot>& Roots = CastManager->Scene->Roots;
 	for (FCastRoot& Root : Roots)
 	{
-		for (FCastModelInfo& Model : Root.Models)
+		for (FCastMaterialInfo& Material : Root.Materials)
 		{
-			for (FCastMaterialInfo& Material : Model.Materials)
+			// Parse Textures
+			FString TexturesFileName = FPaths::Combine(MaterialPath, Material.Name + "_images.txt");
+			if (TArray<FString> TextureContent;
+				FFileHelper::LoadFileToStringArray(TextureContent, *TexturesFileName))
 			{
-				// Parse Textures
-				FString TexturesFileName = FPaths::Combine(MaterialPath, Material.Name + "_images.txt");
-				if (TArray<FString> TextureContent;
-					FFileHelper::LoadFileToStringArray(TextureContent, *TexturesFileName))
+				for (int32 LineIndex = 1; LineIndex < TextureContent.Num(); ++LineIndex)
 				{
-					for (int32 LineIndex = 1; LineIndex < TextureContent.Num(); ++LineIndex)
+					if (bUseGlobalTexturePath)
 					{
-						if (bUseGlobalTexturePath)
+						if (FCastTextureInfo CodTexture;
+							AnalysisTexture(CodTexture,
+							                ParentPath,
+							                TextureContent[LineIndex],
+							                TexturePath,
+							                TextureFormat))
 						{
-							if (FCastTextureInfo CodTexture;
-								AnalysisTexture(CodTexture,
-								                ParentPath,
-								                TextureContent[LineIndex],
-								                TexturePath,
-								                TextureFormat))
-							{
-								Material.Textures.Add(CodTexture);
-							}
+							Material.Textures.Add(CodTexture);
 						}
-						else
+					}
+					else
+					{
+						if (FCastTextureInfo CodTexture;
+							AnalysisTexture(CodTexture,
+							                ParentPath,
+							                TextureContent[LineIndex],
+							                FPaths::Combine(TexturePath, Material.Name),
+							                TextureFormat))
 						{
-							if (FCastTextureInfo CodTexture;
-								AnalysisTexture(CodTexture,
-								                ParentPath,
-								                TextureContent[LineIndex],
-								                FPaths::Combine(TexturePath, Material.Name),
-								                TextureFormat))
-							{
-								Material.Textures.Add(CodTexture);
-							}
+							Material.Textures.Add(CodTexture);
 						}
 					}
 				}
+			}
 
-				// Parse Settings
-				FString SettingsFileName = FPaths::Combine(MaterialPath, Material.Name + "_settings.txt");
-				if (TArray<FString> SettingsContent;
-					FFileHelper::LoadFileToStringArray(SettingsContent, *SettingsFileName))
+			// Parse Settings
+			FString SettingsFileName = FPaths::Combine(MaterialPath, Material.Name + "_settings.txt");
+			if (TArray<FString> SettingsContent;
+				FFileHelper::LoadFileToStringArray(SettingsContent, *SettingsFileName))
+			{
+				TArray<FString> TechSetLineParts;
+				SettingsContent[1].ParseIntoArray(TechSetLineParts, TEXT(": "), false);
+				Material.TechSet = TechSetLineParts[1];
+
+				for (int32 LineIndex = 3; LineIndex < SettingsContent.Num(); ++LineIndex)
 				{
-					TArray<FString> TechSetLineParts;
-					SettingsContent[1].ParseIntoArray(TechSetLineParts, TEXT(": "), false);
-					Material.TechSet = TechSetLineParts[1];
-
-					for (int32 LineIndex = 3; LineIndex < SettingsContent.Num(); ++LineIndex)
+					if (FCastSettingInfo CodSetting;
+						AnalysisSetting(CodSetting,
+						                SettingsContent[LineIndex]))
 					{
-						if (FCastSettingInfo CodSetting;
-							AnalysisSetting(CodSetting,
-							                SettingsContent[LineIndex]))
-						{
-							Material.Settings.Add(CodSetting);
-						}
+						Material.Settings.Add(CodSetting);
 					}
 				}
 			}
@@ -587,7 +584,7 @@ UMaterialInterface* FCastImporter::CreateMaterialInstance(const FCastMaterialInf
 	FString MaterialPath;
 	// if (ImportOptions->MaterialType == ECastMaterialType::CastMT_T7)
 	// {
-		// MaterialPath = FPaths::Combine("/UGC4579750/black_ops_2/Shading/T7/TechSets", Material.TechSet);
+	// MaterialPath = FPaths::Combine("/UGC4579750/black_ops_2/Shading/T7/TechSets", Material.TechSet);
 	// }
 	if (ImportOptions->MaterialType == ECastMaterialType::CastMT_IW8)
 	{
@@ -909,13 +906,40 @@ FCastImportOptions* FCastImporter::GetImportOptions(
 
 USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshArgs& ImportSkeletalMeshArgs)
 {
-	FScopedSlowTask SlowTask(1);
-	SlowTask.EnterProgressFrame(1);
-	USkeletalMesh* SkeletalMesh = nullptr;
+	if (!CastManager || !CastManager->Scene || CastManager->Scene->Roots.IsEmpty() ||
+		CastManager->Scene->Roots[0].ModelLodInfo.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("ImportSkeletalMesh: Invalid scene data provided."));
+		return nullptr;
+	}
 
-	SkeletalMesh = NewObject<USkeletalMesh>(ImportSkeletalMeshArgs.InParent,
-	                                        ImportSkeletalMeshArgs.Name,
-	                                        ImportSkeletalMeshArgs.Flags);
+	FCastRoot& SceneRoot = CastManager->Scene->Roots[0];
+	const int32 LodCount = SceneRoot.ModelLodInfo.Num();
+	if (LodCount == 0 || SceneRoot.Models.Num() != LodCount)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ImportSkeletalMesh: Mismatched LOD count (%d) and Model count (%d)."), LodCount,
+		       SceneRoot.Models.Num());
+		return nullptr;
+	}
+
+	FScopedSlowTask SlowTask(LodCount + 2,
+	                         FText::Format(
+		                         NSLOCTEXT("CastImporter", "ImportingSkeletalMesh", "Importing Skeletal Mesh {0}"),
+		                         FText::FromName(ImportSkeletalMeshArgs.Name)));
+	SlowTask.MakeDialog();
+	USkeletalMesh* SkeletalMesh = NewObject<USkeletalMesh>(ImportSkeletalMeshArgs.InParent,
+	                                                       ImportSkeletalMeshArgs.Name,
+	                                                       ImportSkeletalMeshArgs.Flags);
+	CreatedObjects.Add(SkeletalMesh);
+	SkeletalMesh->PreEditChange(nullptr);
+
+	// --- 材质处理 ---
+	SlowTask.EnterProgressFrame(1, NSLOCTEXT("CastImporter", "ProcessingMaterials", "Processing Materials"));
+	TArray<SkeletalMeshImportData::FMaterial> GlobalDataMaterials;
+	TArray<FSkeletalMaterial>& SkeletalMeshMaterials = SkeletalMesh->GetMaterials();
+	SkeletalMeshMaterials.Empty(SceneRoot.Materials.Num());
+	TMap<uint32, int32> GlobalMaterialHashMapToIndexMap;
+
 	CreatedObjects.Add(SkeletalMesh);
 
 	FSkeletalMeshImportData Data;
@@ -1007,7 +1031,7 @@ USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshA
 			{
 				for (FCastMeshInfo& Mesh : Model.Meshes)
 				{
-					uint32 ModelMatIdx = *Model.MaterialMap.Find(Mesh.MaterialHash);
+					uint32 ModelMatIdx = *Root.MaterialMap.Find(Mesh.MaterialHash);
 					int32 MatIdx;
 					if (int32* FindRes = DataMatMap.Find(ModelMatIdx))
 					{
@@ -1015,7 +1039,7 @@ USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshA
 					}
 					else
 					{
-						const FCastMaterialInfo& Material = Model.Materials[ModelMatIdx];
+						const FCastMaterialInfo& Material = Root.Materials[ModelMatIdx];
 						SkeletalMeshImportData::FMaterial NewMaterial;
 						NewMaterial.MaterialImportName = Material.Name;
 						if (Material.Textures.Num() > 0)
@@ -1250,7 +1274,7 @@ UStaticMesh* FCastImporter::ImportStaticMesh(UObject* InParent, const FName InNa
 	{
 		for (FCastModelInfo& Model : Root.Models)
 		{
-			BulidStaticMeshFromModel(InParent, Model, StaticMesh);
+			BuildStaticMeshFromModel(InParent, Root, Model, StaticMesh);
 		}
 	}
 
@@ -1294,7 +1318,8 @@ UAnimSequence* FCastImporter::ImportAnim(UObject* InParent, USkeleton* Skeleton)
 	return AnimSequence;
 }
 
-void FCastImporter::BulidStaticMeshFromModel(UObject* ParentPackage, FCastModelInfo& Model, UStaticMesh* StaticMesh)
+void FCastImporter::BuildStaticMeshFromModel(UObject* ParentPackage, FCastRoot& SceneRoot, FCastModelInfo& Model,
+                                             UStaticMesh* StaticMesh)
 {
 	FMeshDescription MeshDescription;
 	FStaticMeshAttributes Attributes(MeshDescription);
@@ -1374,8 +1399,8 @@ void FCastImporter::BulidStaticMeshFromModel(UObject* ParentPackage, FCastModelI
 			MeshDescription.CreatePolygon(PolygonGroup, TriangleVertexInstanceIDs);
 		}
 
-		uint32 MatIdx = *Model.MaterialMap.Find(Mesh.MaterialHash);
-		const FCastMaterialInfo& Material = Model.Materials[MatIdx];
+		uint32 MatIdx = *SceneRoot.MaterialMap.Find(Mesh.MaterialHash);
+		const FCastMaterialInfo& Material = SceneRoot.Materials[MatIdx];
 		FName MatName = FName(*Material.Name);
 		PolygonGroupImportedMaterialSlotNames[PolygonGroup] = MatName;
 	}
@@ -1406,8 +1431,8 @@ void FCastImporter::BulidStaticMeshFromModel(UObject* ParentPackage, FCastModelI
 	{
 		FStaticMaterial&& Material = FStaticMaterial(UMaterial::GetDefaultMaterial(MD_Surface));
 
-		uint32 CastMatIdx = Model.MaterialMap[Model.Meshes[i].MaterialHash];
-		const FCastMaterialInfo& CastMaterial = Model.Materials[CastMatIdx];
+		uint32 CastMatIdx = SceneRoot.MaterialMap[Model.Meshes[i].MaterialHash];
+		const FCastMaterialInfo& CastMaterial = SceneRoot.Materials[CastMatIdx];
 
 		if (CastMaterial.Textures.Num() > 0)
 		{

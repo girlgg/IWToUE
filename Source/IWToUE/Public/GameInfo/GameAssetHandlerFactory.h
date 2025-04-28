@@ -1,6 +1,5 @@
 ﻿#pragma once
 
-
 class IGameAssetHandler;
 class FGameProcess;
 

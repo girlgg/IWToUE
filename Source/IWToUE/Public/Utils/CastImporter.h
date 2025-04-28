@@ -96,7 +96,7 @@ public:
 	UStaticMesh* ImportStaticMesh(UObject* InParent, const FName InName, EObjectFlags Flags);
 	UAnimSequence* ImportAnim(UObject* InParent, USkeleton* Skeleton);
 
-	void BulidStaticMeshFromModel(UObject* ParentPackage, FCastModelInfo& Model, UStaticMesh* StaticMesh);
+	void BuildStaticMeshFromModel(UObject* ParentPackage, FCastRoot& SceneRoot, FCastModelInfo& Model, UStaticMesh* StaticMesh);
 
 	static UObject* CreateAssetOfClass(UClass* AssetClass, FString ParentPackageName, FString ObjectName,
 	                                   bool bAllowReplace = false);

@@ -1,6 +1,9 @@
 ﻿#pragma once
 #include "WraithX/GameProcess.h"
 
+struct FWraithXMap;
+struct FCastRoot;
+struct FCoDMap;
 class IMemoryReader;
 struct FWraithXMaterial;
 struct FWraithXSound;
@@ -32,10 +35,12 @@ public:
 	virtual bool ReadSoundData(TSharedPtr<FCoDSound> SoundInfo, FWraithXSound& OutSound) = 0;
 	virtual bool ReadMaterialData(TSharedPtr<FCoDMaterial> MaterialInfo, FWraithXMaterial& OutMaterial) = 0;
 	virtual bool ReadMaterialDataFromPtr(uint64 MaterialHandle, FWraithXMaterial& OutMaterial) = 0;
+	virtual bool ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWraithXMap& OutMapData) = 0;
 
 	// --- 数据转换 ---
 
-	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo) = 0;
+	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo,
+	                            const FCastRoot& InSceneRoot) = 0;
 	virtual bool TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) = 0;
 
 	virtual void ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;

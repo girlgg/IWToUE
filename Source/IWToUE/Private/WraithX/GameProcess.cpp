@@ -6,6 +6,7 @@
 #include "Structures/MW6GameStructures.h"
 #include "WraithX/LocateGameInfo.h"
 #include "WraithX/WindowsMemoryReader.h"
+#include "AssetImporter/AssetDiscoveryTask.h"
 
 FGameProcess::FGameProcess()
 {
@@ -268,21 +269,6 @@ bool FGameProcess::LocateGameInfo()
 		break;
 	}
 	return false;
-}
-
-CoDAssets::ESupportedGames FGameProcess::GetCurrentGameType() const
-{
-	return AssetDiscoverer.IsValid() ? AssetDiscoverer->GetGameType() : CoDAssets::ESupportedGames::None;
-}
-
-CoDAssets::ESupportedGameFlags FGameProcess::GetCurrentGameFlag() const
-{
-	return AssetDiscoverer.IsValid() ? AssetDiscoverer->GetGameFlags() : CoDAssets::ESupportedGameFlags::None;
-}
-
-FCoDCDNDownloader* FGameProcess::GetCDNDownloader()
-{
-	return AssetDiscoverer.IsValid() ? AssetDiscoverer->GetCDNDownloader() : nullptr;
 }
 
 TSharedPtr<FXSub> FGameProcess::GetDecrypt()

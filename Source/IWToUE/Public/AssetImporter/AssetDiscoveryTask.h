@@ -25,7 +25,7 @@ public:
 		FAssetDiscoveredDelegate DiscoveredDelegate = FAssetDiscoveredDelegate::CreateSP(
 			OwnerPtr.Get(), &FGameProcess::HandleAssetDiscovered);
 		// FDiscoveryProgressDelegate ProgressDelegate = FDiscoveryProgressDelegate::CreateSP(
-			// OwnerPtr.Get(), &FGameProcess::HandleDiscoveryProgress);
+		// OwnerPtr.Get(), &FGameProcess::HandleDiscoveryProgress);
 
 		int32 AssetCnt = 0;
 		for (const FAssetPoolDefinition& Pool : Pools)
@@ -36,8 +36,8 @@ public:
 			AssetCnt += OwnerPtr->AssetDiscoverer->DiscoverAssetsInPool(Pool, DiscoveredDelegate);
 			UE_LOG(LogTemp, Verbose, TEXT("AssetDiscoveryTask: Finished pool %s"), *Pool.PoolName);
 		}
-
 		OwnerPtr->SetTotalAssetCnt(AssetCnt);
+		DiscoveredDelegate.ExecuteIfBound(nullptr);
 
 		UE_LOG(LogTemp, Log, TEXT("AssetDiscoveryTask: Discovery work complete."));
 	}

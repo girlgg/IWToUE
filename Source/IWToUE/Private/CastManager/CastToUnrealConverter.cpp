@@ -160,12 +160,9 @@ bool FCastToUnrealConverter::ProcessMaterials(FCastScene& CastScene, const FCast
 	TArray<TTuple<FCastMaterialInfo*, FString>> MaterialsToParse;
 	for (FCastRoot& Root : CastScene.Roots)
 	{
-		for (FCastModelInfo& Model : Root.Models)
+		for (FCastMaterialInfo& Material : Root.Materials)
 		{
-			for (FCastMaterialInfo& Material : Model.Materials)
-			{
-				MaterialsToParse.Add(MakeTuple(&Material, MaterialFileBasePath));
-			}
+			MaterialsToParse.Add(MakeTuple(&Material, MaterialFileBasePath));
 		}
 	}
 
@@ -186,28 +183,25 @@ bool FCastToUnrealConverter::ProcessMaterials(FCastScene& CastScene, const FCast
 	TMap<FString, FCastTextureInfo*> UniqueTextures;
 	for (FCastRoot& Root : CastScene.Roots)
 	{
-		for (FCastModelInfo& Model : Root.Models)
+		for (FCastMaterialInfo& Material : Root.Materials)
 		{
-			for (FCastMaterialInfo& Material : Model.Materials)
+			for (FCastTextureInfo& Texture : Material.Textures)
 			{
-				for (FCastTextureInfo& Texture : Material.Textures)
+				if (Texture.TexturePath.IsEmpty()) continue;
+
+				FString AbsoluteTexturePath = Texture.TexturePath;
+				if (FPaths::IsRelative(AbsoluteTexturePath))
 				{
-					if (Texture.TexturePath.IsEmpty()) continue;
+					AbsoluteTexturePath = FPaths::ConvertRelativePathToFull(
+						MaterialFileBasePath, AbsoluteTexturePath);
+					Texture.TexturePath = AbsoluteTexturePath;
+				}
 
-					FString AbsoluteTexturePath = Texture.TexturePath;
-					if (FPaths::IsRelative(AbsoluteTexturePath))
-					{
-						AbsoluteTexturePath = FPaths::ConvertRelativePathToFull(
-							MaterialFileBasePath, AbsoluteTexturePath);
-						Texture.TexturePath = AbsoluteTexturePath;
-					}
-
-					if (!UniqueTextures.Contains(AbsoluteTexturePath))
-					{
-						UniqueTextures.Add(AbsoluteTexturePath, &Texture);
-						UE_LOG(LogCast, Verbose, TEXT("Found unique texture: %s (Type: %s)"), *AbsoluteTexturePath,
-						       *Texture.TextureType);
-					}
+				if (!UniqueTextures.Contains(AbsoluteTexturePath))
+				{
+					UniqueTextures.Add(AbsoluteTexturePath, &Texture);
+					UE_LOG(LogCast, Verbose, TEXT("Found unique texture: %s (Type: %s)"), *AbsoluteTexturePath,
+					       *Texture.TextureType);
 				}
 			}
 		}
@@ -248,24 +242,21 @@ bool FCastToUnrealConverter::ProcessMaterials(FCastScene& CastScene, const FCast
 	// --- Update all TextureInfo structs with imported objects ---
 	for (FCastRoot& Root : CastScene.Roots)
 	{
-		for (FCastModelInfo& Model : Root.Models)
+		for (FCastMaterialInfo& Material : Root.Materials)
 		{
-			for (FCastMaterialInfo& Material : Model.Materials)
+			for (FCastTextureInfo& Texture : Material.Textures)
 			{
-				for (FCastTextureInfo& Texture : Material.Textures)
-				{
-					if (Texture.TexturePath.IsEmpty()) continue;
+				if (Texture.TexturePath.IsEmpty()) continue;
 
-					if (FCastTextureInfo** FoundInfo = UniqueTextures.Find(Texture.TexturePath))
-					{
-						Texture.TextureObject = (*FoundInfo)->TextureObject;
-					}
-					else
-					{
-						UE_LOG(LogCast, Error,
-						       TEXT("Consistency Error: Texture path %s not found in unique map after import!"),
-						       *Texture.TexturePath);
-					}
+				if (FCastTextureInfo** FoundInfo = UniqueTextures.Find(Texture.TexturePath))
+				{
+					Texture.TextureObject = (*FoundInfo)->TextureObject;
+				}
+				else
+				{
+					UE_LOG(LogCast, Error,
+					       TEXT("Consistency Error: Texture path %s not found in unique map after import!"),
+					       *Texture.TexturePath);
 				}
 			}
 		}

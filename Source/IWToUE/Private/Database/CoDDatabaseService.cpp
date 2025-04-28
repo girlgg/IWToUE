@@ -10,6 +10,7 @@
 #include "Database/SqliteXSubInfoRepository.h"
 #include "Interface/IAsyncTaskQueue.h"
 #include "Interface/IFileTracker.h"
+#include "MapImporter/XSub.h"
 
 FCoDDatabaseService& FCoDDatabaseService::Get()
 {

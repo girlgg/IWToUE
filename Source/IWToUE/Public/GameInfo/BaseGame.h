@@ -471,7 +471,7 @@ protected:
 		MaterialInfo.MaterialHash = ComputeHash(MaterialInfo.Name);
 		MaterialInfo.Textures = PopulateMaterial(Material);
 
-		ModelInfo->Materials.Add(MaterialInfo);
+		// ModelInfo->Materials.Add(MaterialInfo);
 
 		uint64 XyzPtr = Shared + GetXyzOffset(Surface);
 		uint64 TangentFramePtr = Shared + GetTangentFrameOffset(Surface);

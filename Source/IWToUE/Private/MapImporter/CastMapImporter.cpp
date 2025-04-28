@@ -4,7 +4,7 @@
 #include "Engine/StaticMeshActor.h"
 #include "Factories/CastAssetFactory.h"
 #include "MapImporter/GreyMap.h"
-#include "WraithX/SWraithXWidget.h"
+#include "Widgets/SWraithXWidget.h"
 
 #define LOCTEXT_NAMESPACE "FIWToUEMap"
 

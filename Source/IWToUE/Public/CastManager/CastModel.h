@@ -83,22 +83,24 @@ public:
 
 struct FCastMaterialInfo
 {
-	uint64 MaterialHash;
+	uint64 MaterialHash = 0;
 
 	FString Name;
 	FString TechSet;
 	FString Type;
-	uint64 AlbedoFileHash;
-	uint64 DiffuseFileHash;
-	uint64 NormalFileHash;
-	uint64 SpecularFileHash;
-	uint64 EmissiveFileHash;
-	uint64 GlossFileHash;
-	uint64 RoughnessFileHash;
-	uint64 AmbientOcclusionFileHash;
-	uint64 CavityFileHash;
-	uint64 AnisotropyFileHash;
-	uint64 ExtraFileHash;
+	uint64 AlbedoFileHash = 0;
+	uint64 DiffuseFileHash = 0;
+	uint64 NormalFileHash = 0;
+	uint64 SpecularFileHash = 0;
+	uint64 EmissiveFileHash = 0;
+	uint64 GlossFileHash = 0;
+	uint64 RoughnessFileHash = 0;
+	uint64 AmbientOcclusionFileHash = 0;
+	uint64 CavityFileHash = 0;
+	uint64 AnisotropyFileHash = 0;
+	uint64 ExtraFileHash = 0;
+
+	UMaterialInterface* MaterialObject{nullptr};
 
 	TMap<uint64, FString> FileMap;
 
@@ -117,11 +119,18 @@ struct FCastModelInfo
 {
 	FString Name;
 	TArray<FCastMeshInfo> Meshes;
-	TArray<FCastMaterialInfo> Materials;
 	TArray<FCastSkeletonInfo> Skeletons;
 	TArray<FCastBlendShape> BlendShapes;
 
-	TMap<uint64, uint32> MaterialMap;
+	int32 GetTotalVertexCount() const
+	{
+		int32 TotalVertices = 0;
+		for (const FCastMeshInfo& Mesh : Meshes)
+		{
+			TotalVertices += Mesh.GetVertexCount();
+		}
+		return TotalVertices;
+	}
 };
 
 struct FCastModelLod

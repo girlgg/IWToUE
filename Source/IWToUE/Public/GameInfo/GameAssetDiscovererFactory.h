@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "ModernWarfare6AssetDiscoverer.h"
+#include "WraithX/LocateGameInfo.h"
 
 class FGameAssetDiscovererFactory
 {

@@ -20,6 +20,7 @@ public:
 
 protected:
 	bool PopulateMeshDescriptionFromCastModel(
+		const FCastRoot& Root,
 		const FCastModelInfo& ModelInfo,
 		FMeshDescription& OutMeshDescription,
 		const FCastImportOptions& Options,
@@ -30,6 +31,7 @@ protected:
 		TArray<UObject*>& OutCreatedObjects);
 
 	bool PopulateSkeletalMeshImportData(
+	const FCastRoot& Root,
 		const FCastModelInfo& ModelInfo,
 		FSkeletalMeshImportData& OutImportData,
 		const FCastImportOptions& Options,

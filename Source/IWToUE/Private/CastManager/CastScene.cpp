@@ -15,10 +15,7 @@ int32 FCastScene::GetMaterialCount() const
 	int32 Res = 0;
 	for (const FCastRoot& Root : Roots)
 	{
-		for (const FCastModelInfo& Model : Root.Models)
-		{
-			Res += Model.Materials.Num();
-		}
+		Res += Root.Materials.Num();
 	}
 	return Res;
 }
@@ -27,9 +24,12 @@ int32 FCastScene::GetTextureCount() const
 {
 	int32 Res = 0;
 	for (const FCastRoot& Root : Roots)
-		for (const FCastModelInfo& Model : Root.Models)
-			for (const FCastMaterialInfo& Material : Model.Materials)
-				Res += Material.FileMap.Num();
+	{
+		for (const FCastMaterialInfo& Material : Root.Materials)
+		{
+			Res += Material.FileMap.Num();
+		}
+	}
 	return Res;
 }
 
@@ -54,16 +54,27 @@ int32 FCastScene::GetMeshNum() const
 bool FCastScene::HasAnimation() const
 {
 	for (const FCastRoot& Root : Roots)
+	{
 		for (const FCastAnimationInfo& Animation : Root.Animations)
-			if (Animation.Curves.Num() > 0) return true;
+		{
+			if (Animation.Curves.Num() > 0)
+			{
+				return true;
+			}
+		}
+	}
 	return false;
 }
 
 float FCastScene::GetAnimFramerate() const
 {
 	for (const FCastRoot& Root : Roots)
+	{
 		for (const FCastAnimationInfo& Animation : Root.Animations)
+		{
 			return Animation.Framerate;
+		}
+	}
 	return 0;
 }
 

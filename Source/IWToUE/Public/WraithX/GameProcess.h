@@ -1,9 +1,5 @@
 ﻿#pragma once
 
-#include <cassert>
-
-#include "CoreMinimal.h"
-#include "Structures/CodAssets.h"
 #include "UObject/Object.h"
 
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -11,15 +7,13 @@
 #include <tlhelp32.h>
 #include <Psapi.h>
 #include <string>
-
-#include "CoDAssetDatabase.h"
-#include "LocateGameInfo.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 
 #include "SQLiteDatabase.h"
-#include "MapImporter/XSub.h"
-#include "WraithX/CoDAssetType.h"
+#include "Interface/IGameAssetDiscoverer.h"
+#include "Structures/CodAssets.h"
 
+class FXSub;
 class IGameAssetDiscoverer;
 class IMemoryReader;
 class FCoDCDNDownloader;
@@ -83,9 +77,21 @@ public:
 
 	FORCEINLINE TArray<TSharedPtr<FCoDAsset>>& GetLoadedAssets() { return LoadedAssets; }
 
-	FORCEINLINE CoDAssets::ESupportedGames GetCurrentGameType() const;
-	FORCEINLINE CoDAssets::ESupportedGameFlags GetCurrentGameFlag() const;
-	FORCEINLINE FCoDCDNDownloader* GetCDNDownloader();
+	FORCEINLINE CoDAssets::ESupportedGames GetCurrentGameType() const
+	{
+		return AssetDiscoverer.IsValid() ? AssetDiscoverer->GetGameType() : CoDAssets::ESupportedGames::None;
+	}
+
+	FORCEINLINE CoDAssets::ESupportedGameFlags GetCurrentGameFlag() const
+	{
+		return AssetDiscoverer.IsValid() ? AssetDiscoverer->GetGameFlags() : CoDAssets::ESupportedGameFlags::None;
+	}
+
+	FORCEINLINE FCoDCDNDownloader* GetCDNDownloader()
+	{
+		return AssetDiscoverer.IsValid() ? AssetDiscoverer->GetCDNDownloader() : nullptr;
+	}
+
 	TSharedPtr<FXSub> GetDecrypt();
 
 	// --- Delegates ---

@@ -32,7 +32,7 @@ protected:
 
 	void ProcessCastData(FCastNode& Node);
 	void ProcessRootData(FCastNode& Node, FCastRoot& Root);
-	void ProcessModelData(FCastNode& Node, FCastModelInfo& Model);
+	void ProcessModelData(FCastNode& Node, FCastRoot& Root,FCastModelInfo& Model);
 	void ProcessSkeletonData(FCastNode& Node, FCastSkeletonInfo& Skeleton);
 	void ProcessMaterialData(FCastNode& Node, FCastMaterialInfo& Material);
 	void ProcessAnimationData(FCastNode& Node, FCastAnimationInfo& Animation);

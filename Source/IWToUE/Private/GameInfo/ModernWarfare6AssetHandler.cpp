@@ -1,5 +1,6 @@
 ﻿#include "GameInfo/ModernWarfare6AssetHandler.h"
 
+#include "CastManager/CastRoot.h"
 #include "CDN/CoDCDNDownloader.h"
 #include "Database/CoDDatabaseService.h"
 #include "GameInfo/ModernWarfare6.h"
@@ -17,7 +18,22 @@ bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo,
 	FMW6BoneInfo BoneInfo;
 	MemoryReader->ReadMemory<FMW6BoneInfo>(ModelData.BoneInfoPtr, BoneInfo);
 
-	OutModel.ModelName = ModelInfo->AssetName;
+	if (ModelInfo->AssetName.IsEmpty())
+	{
+		if (ModelData.NamePtr != 0)
+		{
+			MemoryReader->ReadString(ModelData.NamePtr, OutModel.ModelName);
+			OutModel.ModelName = FCoDAssetNameHelper::NoIllegalSigns(FPaths::GetBaseFilename(OutModel.ModelName));
+		}
+		else
+		{
+			OutModel.ModelName = FCoDDatabaseService::Get().GetPrintfAssetName(ModelData.Hash, TEXT("xmodel"));
+		}
+	}
+	else
+	{
+		OutModel.ModelName = ModelInfo->AssetName;
+	}
 
 	if (BoneInfo.BoneParentsPtr)
 	{
@@ -38,7 +54,7 @@ bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo,
 	for (uint32 LodIdx = 0; LodIdx < ModelData.NumLods; ++LodIdx)
 	{
 		FMW6XModelLod ModelLod;
-		MemoryReader->ReadMemory<FMW6XModelLod>(ModelData.LodInfo, ModelLod);
+		MemoryReader->ReadMemory<FMW6XModelLod>(ModelData.LodInfo + LodIdx * sizeof(FMW6XModelLod), ModelLod);
 
 		FWraithXModelLod& LodRef = OutModel.ModelLods.AddDefaulted_GetRef();
 
@@ -222,8 +238,6 @@ bool FModernWarfare6AssetHandler::ReadImageDataToTexture(uint64 ImageHandle, UTe
 	}
 	if (ImageAsset.Width < 2 && ImageAsset.Height < 2)
 	{
-		UE_LOG(LogTemp, Error, TEXT("ReadImageDataToTexture: Invalid image Name: %s, with a size of only 1"),
-		       *ImageName);
 		return false;
 	}
 	if (ImageName.IsEmpty())
@@ -296,6 +310,7 @@ bool FModernWarfare6AssetHandler::ReadMaterialDataFromPtr(uint64 MaterialHandle,
 		FMW6Material MaterialData;
 		MemoryReader->ReadMemory<FMW6Material>(MaterialHandle, MaterialData);
 
+		OutMaterial.MaterialPtr = MaterialHandle;
 		OutMaterial.MaterialHash = (MaterialData.Hash & 0xFFFFFFFFFFFFFFF);
 		OutMaterial.MaterialName = FCoDDatabaseService::Get().GetPrintfAssetName(MaterialData.Hash, TEXT("xmaterial"));
 
@@ -343,50 +358,297 @@ bool FModernWarfare6AssetHandler::ReadMaterialDataFromPtr(uint64 MaterialHandle,
 	return true;
 }
 
+bool FModernWarfare6AssetHandler::ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWraithXMap& OutMapData)
+{
+	if (!MapInfo.IsValid() || !MemoryReader.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("ReadMapData failed: Invalid MapInfo or MemoryReader."));
+		return false;
+	}
+
+	FMW6GfxWorld WorldData;
+	if (!MemoryReader->ReadMemory<FMW6GfxWorld>(MapInfo->AssetPointer, WorldData))
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to read FMW6GfxWorld structure."));
+		return false;
+	}
+
+	OutMapData.MapName = FPaths::GetBaseFilename(MapInfo->AssetName);
+
+	// --- Read Transient Zones ---
+	TArray<FMW6GfxWorldTransientZone> TransientZones;
+	TransientZones.SetNum(WorldData.TransientZoneCount);
+	for (uint32 i = 0; i < WorldData.TransientZoneCount; i++)
+	{
+		if (!MemoryReader->ReadMemory<FMW6GfxWorldTransientZone>(WorldData.TransientZones[i], TransientZones[i]))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to read Transient Zone %d."), i);
+			return false;
+		}
+	}
+
+	// --- Process Map Meshes (Surfaces) ---
+	FMW6GfxWorldSurfaces& Surfaces = WorldData.Surfaces;
+	OutMapData.MapMeshes.Reserve(Surfaces.Count);
+
+	for (uint32 SurfaceIdx = 0; SurfaceIdx < Surfaces.Count; ++SurfaceIdx)
+	{
+		FMW6GfxSurface GfxSurface;
+		if (!MemoryReader->ReadMemory<FMW6GfxSurface>(Surfaces.Surfaces + SurfaceIdx * sizeof(FMW6GfxSurface),
+		                                              GfxSurface))
+			continue;
+
+		FMW6GfxUgbSurfData UgbSurfData;
+		if (!MemoryReader->ReadMemory<FMW6GfxUgbSurfData>(
+			Surfaces.UgbSurfData + GfxSurface.UgbSurfDataIndex * sizeof(FMW6GfxUgbSurfData), UgbSurfData))
+			continue;
+
+		if (!TransientZones.IsValidIndex(UgbSurfData.TransientZoneIndex)) continue;
+		const FMW6GfxWorldTransientZone& Zone = TransientZones[UgbSurfData.TransientZoneIndex];
+		if (Zone.Hash == 0 || GfxSurface.VertexCount == 0 || GfxSurface.TriCount == 0) continue;
+
+		// --- Material Handling ---
+		uint64 MaterialPtr;
+		if (!MemoryReader->ReadMemory<uint64>(Surfaces.Materials + GfxSurface.MaterialIndex * 8, MaterialPtr)) continue;
+		FMW6Material MaterialData;
+		MemoryReader->ReadMemory<FMW6Material>(MaterialPtr, MaterialData);
+
+		// --- Create Map Mesh Chunk Data ---
+		FWraithMapMeshData& MeshChunk = OutMapData.MapMeshes.AddDefaulted_GetRef();
+		MeshChunk.MeshName = FString::Printf(TEXT("%s_MeshChunk_%d"), *OutMapData.MapName, SurfaceIdx);
+		FCastMeshInfo& MeshInfo = MeshChunk.MeshData;
+		MeshInfo.Name = MeshChunk.MeshName;
+		MeshInfo.MaterialHash = (MaterialData.Hash & 0xFFFFFFFFFFFFFFF);
+		MeshInfo.MaterialPtr = MaterialPtr;
+
+		// --- Read Vertex Data ---
+		uint16 VertexCount = GfxSurface.VertexCount;
+		MeshInfo.UVLayer = UgbSurfData.LayerCount > 0 ? UgbSurfData.LayerCount - 1 : 0;
+		MeshInfo.VertexPositions.Reserve(VertexCount);
+		MeshInfo.VertexNormals.Reserve(VertexCount);
+		MeshInfo.VertexTangents.Reserve(VertexCount);
+		MeshInfo.VertexUV.Reserve(VertexCount);
+		if (UgbSurfData.ColorOffset != 0) MeshInfo.VertexColor.Reserve(VertexCount);
+
+		uint64 XyzPtr = Zone.DrawVerts.PosData + UgbSurfData.XyzOffset;
+		uint64 TangentFramePtr = Zone.DrawVerts.PosData + UgbSurfData.TangentFrameOffset;
+		uint64 TexCoordPtr = Zone.DrawVerts.PosData + UgbSurfData.TexCoordOffset;
+		uint64 ColorPtr = (UgbSurfData.ColorOffset != 0) ? (Zone.DrawVerts.PosData + UgbSurfData.ColorOffset) : 0;
+
+		FMW6GfxWorldDrawOffset WorldDrawOffset = UgbSurfData.WorldDrawOffset;
+
+		for (uint16 VertexIdx = 0; VertexIdx < VertexCount; ++VertexIdx)
+		{
+			uint64 PackedPosition;
+			if (!MemoryReader->ReadMemory<uint64>(XyzPtr + VertexIdx * sizeof(uint64), PackedPosition)) continue;
+			FVector3f Position{
+				((PackedPosition >> 0) & 0x1FFFFF) * WorldDrawOffset.Scale + WorldDrawOffset.X,
+				((PackedPosition >> 21) & 0x1FFFFF) * WorldDrawOffset.Scale + WorldDrawOffset.Y,
+				((PackedPosition >> 42) & 0x1FFFFF) * WorldDrawOffset.Scale + WorldDrawOffset.Z
+			};
+			MeshInfo.VertexPositions.Add(Position);
+
+			// Tangent Frame (Normal/Tangent)
+			uint32 PackedTangentFrame;
+			if (!MemoryReader->ReadMemory<uint32>(TangentFramePtr + VertexIdx * sizeof(uint32), PackedTangentFrame))
+				continue;
+			FVector3f Tangent, Normal;
+			FCoDMeshHelper::UnpackCoDQTangent(PackedTangentFrame, Tangent, Normal);
+			MeshInfo.VertexTangents.Add(Tangent);
+			MeshInfo.VertexNormals.Add(Normal);
+
+			// UVs
+			uint64 CurrentUVPtr = TexCoordPtr + sizeof(FVector2f) * (VertexIdx + UgbSurfData.LayerCount - 1);
+			FVector2f UV;
+			MemoryReader->ReadMemory<FVector2f>(CurrentUVPtr, UV);
+			MeshInfo.VertexUV.Add(MoveTemp(UV));
+
+			// Read additional UV layers if they exist
+			// for (uint32 LayerIdx = 1; LayerIdx < UgbSurfData.LayerCount; ++LayerIdx) { ... read into MeshInfo.VertexUV2 etc ... }
+
+			// Color
+			if (ColorPtr != 0)
+			{
+				// uint32 PackedColor;
+				// if (!MemoryReader->ReadMemory<uint32>(ColorPtr + VertexIdx * sizeof(uint32), PackedColor)) continue;
+				// MeshInfo.VertexColor.Add(PackedColor);
+			}
+		}
+
+		// --- Read Face Indices ---
+		uint64 TableOffsetPtr = Zone.DrawVerts.TableData + GfxSurface.TableIndex * 40;
+		uint64 IndicesPtr = Zone.DrawVerts.Indices + GfxSurface.BaseIndex * sizeof(uint16);
+		uint64 PackedIndicesPtr = Zone.DrawVerts.PackedIndices + GfxSurface.PackedIndicesOffset;
+
+		MeshInfo.Faces.Reserve(GfxSurface.TriCount * 3);
+
+		for (int TriIndex = 0; TriIndex < GfxSurface.TriCount; ++TriIndex)
+		{
+			TArray<uint16> FaceIndices;
+			if (!FCoDMeshHelper::UnpackFaceIndices(MemoryReader,
+			                                       FaceIndices, TableOffsetPtr,
+			                                       GfxSurface.PackedIndicesTableCount,
+			                                       PackedIndicesPtr, IndicesPtr, TriIndex, false))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Failed to unpack faces for surface %d, triangle %d."), SurfaceIdx,
+				       TriIndex);
+				MeshInfo.Faces.SetNum(0);
+				break;
+			}
+
+			if (FaceIndices.Num() == 3)
+			{
+				MeshInfo.Faces.Add(FaceIndices[2]);
+				MeshInfo.Faces.Add(FaceIndices[1]);
+				MeshInfo.Faces.Add(FaceIndices[0]);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("UnpackFaceIndices returned %d indices for triangle %d (expected 3)."),
+				       FaceIndices.Num(), TriIndex);
+				MeshInfo.Faces.SetNum(0);
+				break;
+			}
+		}
+
+		if (MeshInfo.Faces.Num() != GfxSurface.TriCount * 3)
+		{
+			OutMapData.MapMeshes.Pop();
+			UE_LOG(LogTemp, Error, TEXT("Removed invalid mesh chunk %s due to face reading errors."),
+			       *MeshChunk.MeshName);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Verbose, TEXT("Processed map mesh chunk %s: Verts=%d, Tris=%d"), *MeshChunk.MeshName,
+			       MeshInfo.VertexPositions.Num(), MeshInfo.Faces.Num() / 3);
+		}
+	}
+
+	// --- Process Static Model Instances ---
+	UE_LOG(LogTemp, Log, TEXT("Processing %d static model collections..."), WorldData.SModels.CollectionsCount);
+	FMW6GfxWorldStaticModels& SModels = WorldData.SModels;
+	OutMapData.StaticModelInstances.Reserve(SModels.InstanceCount);
+
+	for (uint32 CollectionIdx = 0; CollectionIdx < SModels.CollectionsCount; ++CollectionIdx)
+	{
+		FMW6GfxStaticModelCollection StaticModelCollection;
+		if (!MemoryReader->ReadMemory(SModels.Collections + CollectionIdx * sizeof(FMW6GfxStaticModelCollection),
+		                              StaticModelCollection))
+			continue;
+
+		FMW6GfxStaticModel StaticModel;
+		if (!MemoryReader->ReadMemory(SModels.SModels + StaticModelCollection.SModelIndex * sizeof(FMW6GfxStaticModel),
+		                              StaticModel))
+			continue;
+
+		if (!TransientZones.IsValidIndex(StaticModelCollection.TransientGfxWorldPlaced)) continue;
+		const FMW6GfxWorldTransientZone& Zone = TransientZones[StaticModelCollection.TransientGfxWorldPlaced];
+		if (!Zone.Hash) continue;
+
+		FMW6XModel XModel;
+		if (!MemoryReader->ReadMemory(StaticModel.XModel, XModel)) continue;
+
+		FString XModelNameStr = TEXT("UnknownModel");
+		if (XModel.NamePtr != 0)
+		{
+			MemoryReader->ReadString(XModel.NamePtr, XModelNameStr);
+			XModelNameStr = FCoDAssetNameHelper::NoIllegalSigns(FPaths::GetBaseFilename(XModelNameStr));
+		}
+		else
+		{
+			XModelNameStr = FCoDDatabaseService::Get().GetPrintfAssetName(XModel.Hash, TEXT("xmodel"));
+		}
+
+		for (uint32 InstanceOffset = 0; InstanceOffset < StaticModelCollection.InstanceCount; ++InstanceOffset)
+		{
+			uint32 InstanceId = StaticModelCollection.FirstInstance + InstanceOffset;
+			if (InstanceId >= SModels.InstanceCount)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("InstanceId %u out of bounds (%u). Skipping."), InstanceId,
+				       SModels.InstanceCount);
+				continue;
+			}
+
+			FMW6GfxSModelInstanceData InstanceData;
+			if (!MemoryReader->ReadMemory(SModels.InstanceData + InstanceId * sizeof(FMW6GfxSModelInstanceData),
+			                              InstanceData))
+				continue;
+
+			// --- Create Instance Info ---
+			FWraithMapStaticModelInstance& InstanceInfo = OutMapData.StaticModelInstances.AddDefaulted_GetRef();
+			InstanceInfo.ModelAssetPtr = StaticModel.XModel;
+			InstanceInfo.InstanceName = FString::Printf(TEXT("%s_Inst_%d"), *XModelNameStr, InstanceId);
+
+			const float PosScale = 0.000244140625f; // 1/4096
+			FVector Position(
+				InstanceData.Translation[0] * PosScale,
+				InstanceData.Translation[1] * PosScale,
+				InstanceData.Translation[2] * PosScale
+			);
+
+			FQuat Rotation(
+				FMath::Clamp(InstanceData.Orientation[0] * 0.000030518044f - 1.0f, -1.0f, 1.0f),
+				FMath::Clamp(InstanceData.Orientation[1] * 0.000030518044f - 1.0f, -1.0f, 1.0f),
+				FMath::Clamp(InstanceData.Orientation[2] * 0.000030518044f - 1.0f, -1.0f, 1.0f),
+				FMath::Clamp(InstanceData.Orientation[3] * 0.000030518044f - 1.0f, -1.0f, 1.0f)
+			);
+			Rotation.Normalize();
+
+			FFloat16 HalfFloatScale;
+			HalfFloatScale.Encoded = InstanceData.HalfFloatScale;
+			float Scale = HalfFloatScale;
+			FVector Scale3D(Scale);
+
+			InstanceInfo.Transform = FTransform(
+				FQuat(Rotation.X, -Rotation.Y, Rotation.Z, -Rotation.W),
+				FVector(Position.X, -Position.Y, Position.Z),
+				Scale3D
+			);
+			InstanceInfo.Transform.NormalizeRotation();
+		}
+	}
+	return true;
+}
+
 bool FModernWarfare6AssetHandler::TranslateModel(FWraithXModel& InModel, int32 LodIdx,
-                                                 FCastModelInfo& OutModelInfo)
+                                                 FCastModelInfo& OutModelInfo, const FCastRoot& InSceneRoot)
 {
 	OutModelInfo.Name = InModel.ModelName;
 
-	if (!InModel.ModelLods.IsValidIndex(LodIdx)) return false;
+	if (!InModel.ModelLods.IsValidIndex(LodIdx))
+	{
+		UE_LOG(LogTemp, Error, TEXT("TranslateModel: Invalid LOD index %d for model %s"), LodIdx, *InModel.ModelName);
+		return false;
+	}
 	FWraithXModelLod& LodRef = InModel.ModelLods[LodIdx];
 
-	TMap<FString, uint32> MaterialNameToIndexMap;
-	OutModelInfo.Materials.Reserve(LodRef.Materials.Num());
-
-	for (int32 MaterialIdx = 0; MaterialIdx < LodRef.Materials.Num(); ++MaterialIdx)
+	for (int32 SubmeshIdx = 0; SubmeshIdx < LodRef.Submeshes.Num(); ++SubmeshIdx)
 	{
-		FWraithXMaterial& Material = LodRef.Materials[MaterialIdx];
-		FString MaterialName = FCoDAssetNameHelper::NoIllegalSigns(Material.MaterialName);
-		FWraithXModelSubmesh& Submesh = LodRef.Submeshes[MaterialIdx];
-		if (MaterialNameToIndexMap.Contains(MaterialName))
+		if (!LodRef.Materials.IsValidIndex(SubmeshIdx))
 		{
-			Submesh.MaterialIndex = MaterialNameToIndexMap[MaterialName];
+			UE_LOG(LogTemp, Warning, TEXT("TranslateModel: Material index %d out of bounds for LOD %d of model %s."),
+			       SubmeshIdx, LodIdx, *InModel.ModelName);
 			continue;
 		}
-		int32 NewIndex = OutModelInfo.Materials.Num();
-		FCastMaterialInfo& MaterialInfo = OutModelInfo.Materials.AddDefaulted_GetRef();
-		MaterialInfo.Name = MaterialName;
-		MaterialInfo.MaterialHash = Material.MaterialHash;
+		FWraithXMaterial& Material = LodRef.Materials[SubmeshIdx];
+		FWraithXModelSubmesh& Submesh = LodRef.Submeshes[SubmeshIdx];
 
-		Submesh.MaterialIndex = NewIndex;
-		Submesh.MaterialHash = Material.MaterialHash;
-
-		OutModelInfo.MaterialMap.Add(Material.MaterialHash, NewIndex);
-
-		MaterialInfo.Textures.Reserve(Material.Images.Num());
-		for (const FWraithXImage& Image : Material.Images)
+		if (const uint32* FoundIndex = InSceneRoot.MaterialMap.Find(Material.MaterialHash))
 		{
-			if (!Image.ImageObject) continue;
-
-			FCastTextureInfo& TextureInfo = MaterialInfo.Textures.AddDefaulted_GetRef();
-
-			TextureInfo.TextureName = Image.ImageName;
-			TextureInfo.TextureObject = Image.ImageObject;
-			TextureInfo.TextureSlot = FString::Printf(TEXT("unk_semantic_0x%x"), Image.SemanticHash);
-			TextureInfo.TextureType = TextureInfo.TextureSlot;
+			Submesh.MaterialIndex = *FoundIndex;
+			Submesh.MaterialHash = Material.MaterialHash;
 		}
-		MaterialNameToIndexMap.Add(MaterialName, NewIndex);
+		else
+		{
+			// 理论上不发生
+			UE_LOG(LogTemp, Error,
+			       TEXT(
+				       "TranslateModel: Material hash %llu (Material: %s) not found in pre-processed SceneRoot.MaterialMap for LOD %d of model %s. This indicates an error in the pre-processing step."
+			       ),
+			       Material.MaterialHash, *Material.MaterialName, LodIdx, *InModel.ModelName);
+			Submesh.MaterialIndex = INDEX_NONE;
+			Submesh.MaterialHash = Material.MaterialHash;
+		}
 	}
 	if (InModel.IsModelStreamed)
 	{

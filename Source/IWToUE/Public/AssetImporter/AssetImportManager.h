@@ -1,6 +1,5 @@
 ﻿#pragma once
 
-#include "CoreMinimal.h"
 #include "UObject/Object.h"
 
 class FGameProcess;
@@ -39,10 +38,10 @@ public:
 
 private:
 	// --- 回调函数 ---
-	
+
 	void OnAssetInitCompletedInternal();
 	void OnAssetLoadingInternal(float InProgress);
-	
+
 	void SetupAssetImporters();
 	void UpdateGameHandler();
 
