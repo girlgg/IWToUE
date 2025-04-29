@@ -4,43 +4,48 @@
 #include "IDesktopPlatform.h"
 #include "Localization/IWToUELocalizationManager.h"
 #include "WraithX/WraithSettings.h"
+#include "WraithX/WraithSettingsManager.h"
 
 #define LOC_SETTINGS(Key, Text) FIWToUELocalizationManager::Get().GetText(Key, Text)
 
-FModelSettingsViewModel::FModelSettingsViewModel(UWraithSettings* InSettings)
-	: Settings(InSettings)
+FModelSettingsViewModel::FModelSettingsViewModel()
 {
-	check(Settings != nullptr);
 	PopulateEnumOptions();
 }
 
 FText FModelSettingsViewModel::GetExportDirectory() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return FText::FromString(Settings->Model.ExportDirectory);
 }
 
 ECheckBoxState FModelSettingsViewModel::GetExportLoDsCheckState() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return Settings->Model.bExportLODs ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
 TOptional<int32> FModelSettingsViewModel::GetMaxLODLevel() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return Settings->Model.MaxLODLevel;
 }
 
 bool FModelSettingsViewModel::IsMaxLODLevelEnabled() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return Settings->Model.bExportLODs;
 }
 
 ECheckBoxState FModelSettingsViewModel::GetExportVertexColorCheckState() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return Settings->Model.bExportVertexColor ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
 TSharedPtr<ETextureExportPathMode> FModelSettingsViewModel::GetCurrentTexturePathMode() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	for (const auto& Option : TexturePathModeOptionsSource)
 	{
 		if (*Option == Settings->Model.TexturePathMode) return Option;
@@ -60,11 +65,13 @@ FText FModelSettingsViewModel::GetTexturePathModeDisplayName(ETextureExportPathM
 
 bool FModelSettingsViewModel::IsTexturePathModeEnabled() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return !Settings->Texture.bUseGlobalTexturePath;
 }
 
 TSharedPtr<EMaterialExportPathMode> FModelSettingsViewModel::GetCurrentMaterialPathMode() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	for (const auto& Option : MaterialPathModeOptionsSource)
 	{
 		if (*Option == Settings->Model.MaterialPathMode) return Option;
@@ -84,18 +91,18 @@ FText FModelSettingsViewModel::GetMaterialPathModeDisplayName(EMaterialExportPat
 
 bool FModelSettingsViewModel::IsMaterialPathModeEnabled() const
 {
+	UWraithSettings* Settings = GetSettings();
 	return !Settings->Material.bUseGlobalMaterialPath;
 }
 
 FReply FModelSettingsViewModel::HandleBrowseExportDirectoryClicked()
 {
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (DesktopPlatform)
+	UWraithSettings* Settings = GetSettings();
+	if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
 	{
-		FString FolderName;
 		const FString Title = LOC_SETTINGS("BrowseModelExportDirTitle", "Select Model Export Directory").ToString();
 		const void* ParentWindowHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
-		if (DesktopPlatform->
+		if (FString FolderName; DesktopPlatform->
 			OpenDirectoryDialog(ParentWindowHandle, Title, Settings->Model.ExportDirectory, FolderName))
 		{
 			if (Settings->Model.ExportDirectory != FolderName)
@@ -110,7 +117,7 @@ FReply FModelSettingsViewModel::HandleBrowseExportDirectoryClicked()
 
 void FModelSettingsViewModel::HandleExportDirectoryTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo)
 {
-	if (Settings->Model.ExportDirectory != NewText.ToString())
+	if (UWraithSettings* Settings = GetSettings(); Settings->Model.ExportDirectory != NewText.ToString())
 	{
 		Settings->Model.ExportDirectory = NewText.ToString();
 		SaveSettings();
@@ -119,8 +126,8 @@ void FModelSettingsViewModel::HandleExportDirectoryTextCommitted(const FText& Ne
 
 void FModelSettingsViewModel::HandleExportLODsCheckStateChanged(ECheckBoxState NewState)
 {
-	bool bNewState = (NewState == ECheckBoxState::Checked);
-	if (Settings->Model.bExportLODs != bNewState)
+	const bool bNewState = NewState == ECheckBoxState::Checked;
+	if (UWraithSettings* Settings = GetSettings(); Settings->Model.bExportLODs != bNewState)
 	{
 		Settings->Model.bExportLODs = bNewState;
 		SaveSettings();
@@ -129,7 +136,8 @@ void FModelSettingsViewModel::HandleExportLODsCheckStateChanged(ECheckBoxState N
 
 void FModelSettingsViewModel::HandleMaxLODLevelChanged(int32 NewValue)
 {
-	int32 ClampedValue = FMath::Clamp(NewValue, 0, 10); // Clamp between 0 and an arbitrary upper limit (e.g., 10)
+	int32 ClampedValue = FMath::Clamp(NewValue, 0, 10);
+	UWraithSettings* Settings = GetSettings();
 	if (Settings->Model.MaxLODLevel != ClampedValue)
 	{
 		Settings->Model.MaxLODLevel = ClampedValue;
@@ -139,8 +147,8 @@ void FModelSettingsViewModel::HandleMaxLODLevelChanged(int32 NewValue)
 
 void FModelSettingsViewModel::HandleExportVertexColorCheckStateChanged(ECheckBoxState NewState)
 {
-	bool bNewState = (NewState == ECheckBoxState::Checked);
-	if (Settings->Model.bExportVertexColor != bNewState)
+	const bool bNewState = NewState == ECheckBoxState::Checked;
+	if (UWraithSettings* Settings = GetSettings(); Settings->Model.bExportVertexColor != bNewState)
 	{
 		Settings->Model.bExportVertexColor = bNewState;
 		SaveSettings();
@@ -150,7 +158,8 @@ void FModelSettingsViewModel::HandleExportVertexColorCheckStateChanged(ECheckBox
 void FModelSettingsViewModel::HandleTexturePathModeSelectionChanged(TSharedPtr<ETextureExportPathMode> NewSelection,
                                                                     ESelectInfo::Type SelectInfo)
 {
-	if (NewSelection.IsValid() && Settings->Model.TexturePathMode != *NewSelection)
+	if (UWraithSettings* Settings = GetSettings(); NewSelection.IsValid() && Settings->Model.TexturePathMode != *
+		NewSelection)
 	{
 		Settings->Model.TexturePathMode = *NewSelection;
 		SaveSettings();
@@ -160,39 +169,53 @@ void FModelSettingsViewModel::HandleTexturePathModeSelectionChanged(TSharedPtr<E
 void FModelSettingsViewModel::HandleMaterialPathModeSelectionChanged(TSharedPtr<EMaterialExportPathMode> NewSelection,
                                                                      ESelectInfo::Type SelectInfo)
 {
-	if (NewSelection.IsValid() && Settings->Model.MaterialPathMode != *NewSelection)
+	if (UWraithSettings* Settings = GetSettings(); NewSelection.IsValid() && Settings->Model.MaterialPathMode != *
+		NewSelection)
 	{
 		Settings->Model.MaterialPathMode = *NewSelection;
 		SaveSettings();
 	}
 }
 
+UWraithSettings* FModelSettingsViewModel::GetSettings() const
+{
+	if (GEditor)
+	{
+		if (UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>())
+		{
+			return SettingsManager->GetSettingsMutable();
+		}
+	}
+	UE_LOG(LogTemp, Error,
+	       TEXT("FModelSettingsViewModel::GetSettings - Could not get Settings Manager or Settings Object!"));
+	return nullptr;
+}
+
 void FModelSettingsViewModel::SaveSettings()
 {
-	if (Settings) Settings->Save();
+	if (UWraithSettings* Settings = GetSettings()) Settings->Save();
 }
 
 void FModelSettingsViewModel::PopulateEnumOptions()
 {
-	UEnum* TextureEnum = StaticEnum<ETextureExportPathMode>();
-	if (TextureEnum)
+	if (UEnum* TextureEnum = StaticEnum<ETextureExportPathMode>())
 	{
 		TexturePathModeOptionsSource.Empty(TextureEnum->NumEnums() - 1);
 		for (int32 i = 0; i < TextureEnum->NumEnums() - 1; ++i) // Skip _MAX
 		{
 			TexturePathModeOptionsSource.Add(
-				MakeShared<ETextureExportPathMode>((ETextureExportPathMode)TextureEnum->GetValueByIndex(i)));
+				MakeShared<ETextureExportPathMode>(
+					static_cast<ETextureExportPathMode>(TextureEnum->GetValueByIndex(i))));
 		}
 	}
-	// Material Path Modes
-	UEnum* MaterialEnum = StaticEnum<EMaterialExportPathMode>();
-	if (MaterialEnum)
+	if (UEnum* MaterialEnum = StaticEnum<EMaterialExportPathMode>())
 	{
 		MaterialPathModeOptionsSource.Empty(MaterialEnum->NumEnums() - 1);
 		for (int32 i = 0; i < MaterialEnum->NumEnums() - 1; ++i) // Skip _MAX
 		{
 			MaterialPathModeOptionsSource.Add(
-				MakeShared<EMaterialExportPathMode>((EMaterialExportPathMode)MaterialEnum->GetValueByIndex(i)));
+				MakeShared<EMaterialExportPathMode>(
+					static_cast<EMaterialExportPathMode>(MaterialEnum->GetValueByIndex(i))));
 		}
 	}
 }

@@ -7,7 +7,7 @@ class UWraithSettings;
 class FAudioSettingsViewModel : public TSharedFromThis<FAudioSettingsViewModel>
 {
 public:
-	FAudioSettingsViewModel(UWraithSettings* InSettings);
+	FAudioSettingsViewModel();
 
 	FText GetExportDirectory() const;
 
@@ -15,6 +15,6 @@ public:
 	void HandleExportDirectoryTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo);
 
 private:
+	UWraithSettings* GetSettings() const;
 	void SaveSettings();
-	UWraithSettings* Settings;
 };

@@ -3,30 +3,29 @@
 #include "DesktopPlatformModule.h"
 #include "Localization/IWToUELocalizationManager.h"
 #include "WraithX/WraithSettings.h"
+#include "WraithX/WraithSettingsManager.h"
 
 #define LOC_SETTINGS(Key, Text) FIWToUELocalizationManager::Get().GetText(Key, Text)
 
-FMapSettingsViewModel::FMapSettingsViewModel(UWraithSettings* InSettings)
-	: Settings(InSettings)
+FMapSettingsViewModel::FMapSettingsViewModel()
 {
-	check(Settings != nullptr);
 }
 
 FText FMapSettingsViewModel::GetExportDirectory() const
 {
+	UWraithSettings* Settings = GetSettings();
 	return FText::FromString(Settings->Map.ExportDirectory);
 }
 
 FReply FMapSettingsViewModel::HandleBrowseExportDirectoryClicked()
 {
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (DesktopPlatform)
+	UWraithSettings* Settings = GetSettings();
+	if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
 	{
-		FString FolderName;
 		const FString Title = LOC_SETTINGS("BrowseMapExportDirTitle", "Select Map Export Directory").ToString();
 		const void* ParentWindowHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
 
-		if (DesktopPlatform->
+		if (FString FolderName; DesktopPlatform->
 			OpenDirectoryDialog(ParentWindowHandle, Title, Settings->Map.ExportDirectory, FolderName))
 		{
 			if (Settings->Map.ExportDirectory != FolderName)
@@ -41,6 +40,7 @@ FReply FMapSettingsViewModel::HandleBrowseExportDirectoryClicked()
 
 void FMapSettingsViewModel::HandleExportDirectoryTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo)
 {
+	UWraithSettings* Settings = GetSettings();
 	if (Settings->Map.ExportDirectory != NewText.ToString())
 	{
 		Settings->Map.ExportDirectory = NewText.ToString();
@@ -48,7 +48,21 @@ void FMapSettingsViewModel::HandleExportDirectoryTextCommitted(const FText& NewT
 	}
 }
 
+UWraithSettings* FMapSettingsViewModel::GetSettings() const
+{
+	if (GEditor)
+	{
+		if (UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>())
+		{
+			return SettingsManager->GetSettingsMutable();
+		}
+	}
+	UE_LOG(LogTemp, Error,
+	       TEXT("FGeneralSettingsViewModel::GetSettings - Could not get Settings Manager or Settings Object!"));
+	return nullptr;
+}
+
 void FMapSettingsViewModel::SaveSettings()
 {
-	if (Settings) Settings->Save();
+	if (UWraithSettings* Settings = GetSettings()) Settings->Save();
 }

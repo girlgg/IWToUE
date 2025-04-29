@@ -3,29 +3,29 @@
 #include "DesktopPlatformModule.h"
 #include "Localization/IWToUELocalizationManager.h"
 #include "WraithX/WraithSettings.h"
+#include "WraithX/WraithSettingsManager.h"
 
 #define LOC_SETTINGS(Key, Text) FIWToUELocalizationManager::Get().GetText(Key, Text)
 
-FAudioSettingsViewModel::FAudioSettingsViewModel(UWraithSettings* InSettings)
-	: Settings(InSettings)
+FAudioSettingsViewModel::FAudioSettingsViewModel()
 {
-	check(Settings != nullptr);
 }
 
 void FAudioSettingsViewModel::SaveSettings()
 {
-	if (Settings) Settings->Save();
+	if (UWraithSettings* Settings = GetSettings()) Settings->Save();
 }
 
 FText FAudioSettingsViewModel::GetExportDirectory() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return FText::FromString(Settings->Audio.ExportDirectory);
 }
 
 FReply FAudioSettingsViewModel::HandleBrowseExportDirectoryClicked()
 {
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (DesktopPlatform)
+	UWraithSettings* Settings = GetSettings();
+	if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
 	{
 		FString FolderName;
 		const FString Title = LOC_SETTINGS("BrowseAudioExportDirTitle", "Select Audio Export Directory").ToString();
@@ -46,9 +46,24 @@ FReply FAudioSettingsViewModel::HandleBrowseExportDirectoryClicked()
 
 void FAudioSettingsViewModel::HandleExportDirectoryTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo)
 {
+	UWraithSettings* Settings = GetSettings();
 	if (Settings->Audio.ExportDirectory != NewText.ToString())
 	{
 		Settings->Audio.ExportDirectory = NewText.ToString();
 		SaveSettings();
 	}
+}
+
+UWraithSettings* FAudioSettingsViewModel::GetSettings() const
+{
+	if (GEditor)
+	{
+		if (UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>())
+		{
+			return SettingsManager->GetSettingsMutable();
+		}
+	}
+	UE_LOG(LogTemp, Error,
+	       TEXT("FAudioSettingsViewModel::GetSettings - Could not get Settings Manager or Settings Object!"));
+	return nullptr;
 }

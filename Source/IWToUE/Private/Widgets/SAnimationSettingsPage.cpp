@@ -35,7 +35,6 @@ void SAnimationSettingsPage::Construct(const FArguments& InArgs, TSharedRef<FAni
 						LOC_SETTINGS("AnimExportDirLabel", "Export Directory"),
 						LOC_SETTINGS("AnimExportDirTooltip", "Default directory for exported animations."),
 						TAttribute<FText>(ViewModel.Get(), &FAnimationSettingsViewModel::GetExportDirectory),
-						FOnTextChanged(),
 						FOnTextCommitted::CreateSP(ViewModel.Get(),
 						                           &FAnimationSettingsViewModel::HandleExportDirectoryTextCommitted),
 						FOnClicked::CreateSP(ViewModel.Get(),

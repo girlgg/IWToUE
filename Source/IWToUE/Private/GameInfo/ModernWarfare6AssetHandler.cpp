@@ -9,7 +9,6 @@
 #include "ThirdSupport/SABSupport.h"
 #include "Utils/CoDAssetHelper.h"
 #include "Utils/CoDBonesHelper.h"
-#include "WraithX/CoDAssetDatabase.h"
 
 bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo, FWraithXModel& OutModel)
 {

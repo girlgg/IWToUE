@@ -7,7 +7,7 @@ class UWraithSettings;
 class FAnimationSettingsViewModel : public TSharedFromThis<FAnimationSettingsViewModel>
 {
 public:
-	FAnimationSettingsViewModel(UWraithSettings* InSettings);
+	FAnimationSettingsViewModel();
 
 	FText GetExportDirectory() const;
 	FText GetTargetSkeletonPath() const;
@@ -18,7 +18,6 @@ public:
 	void HandleTargetSkeletonTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo);
 
 private:
+	UWraithSettings* GetSettings() const;
 	void SaveSettings();
-	
-	UWraithSettings* Settings;
 };

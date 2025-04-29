@@ -236,8 +236,8 @@ void FCastMapImporter::ImportMapFromJson()
 void FCastMapImporter::ImportMapFronCord()
 {
 	TSharedRef<SWindow> NewWindow = SNew(SWindow)
-	.Title(FText::FromString(TEXT("资源检测窗口")))
-	.ClientSize(FVector2D(800, 600));
+		.Title(FText::FromString(TEXT("资源检测窗口")))
+		.ClientSize(FVector2D(800, 600));
 
 	NewWindow->SetContent(SNew(SGreyMap));
 	FSlateApplication::Get().AddWindow(NewWindow);
@@ -246,14 +246,12 @@ void FCastMapImporter::ImportMapFronCord()
 void FCastMapImporter::ImportAssetFronCord()
 {
 	TSharedRef<SWindow> BrowserWindow = SNew(SWindow)
-			.Title(INVTEXT("Asset Browser"))
-			.ClientSize(FVector2D(1280, 720))
-			.SupportsMaximize(true)
-			.SupportsMinimize(false);
+		.Title(INVTEXT("Asset Browser"))
+		.ClientSize(FVector2D(1280, 720))
+		.SupportsMaximize(true)
+		.SupportsMinimize(false);
 
-	BrowserWindow->SetContent(
-		SNew(SWraithXWidget)
-	);
+	BrowserWindow->SetContent(SNew(SWraithXWidget, ViewModel));
 
 	FSlateApplication::Get().AddWindow(BrowserWindow);
 }
@@ -345,9 +343,9 @@ FReply FCastMapImporter::OnConfirmImport(TSharedRef<SWindow> DialogWindow, TShar
 						UObject* ParentPackage = CreatePackage(*ModelPackageName);
 						EObjectFlags Flags = RF_Public | RF_Standalone;
 
-						ModelMesh = Cast<UStaticMesh>(UCastAssetFactory::ExecuteImportProcess(
-							ParentPackage, *FileName_Fix, Flags, ModelFilePath,
-							CastImporter, ImportOptions, ModelFilePath));
+						// ModelMesh = Cast<UStaticMesh>(UCastAssetFactory::ExecuteImportProcess(
+						// 	ParentPackage, *FileName_Fix, Flags, ModelFilePath,
+						// 	CastImporter, ImportOptions, ModelFilePath));
 					}
 				}
 				if (ModelMesh)

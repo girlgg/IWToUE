@@ -29,10 +29,6 @@ UCastAssetFactory::UCastAssetFactory(const FObjectInitializer& ObjectInitializer
 	InitializeDependencies();
 
 	ImportUI = NewObject<UCastImportUI>();
-
-	// bText = false;
-	// bShowOption = true;
-	// bDetectImportTypeOnImport = true;
 }
 
 void UCastAssetFactory::PostInitProperties()
@@ -55,9 +51,6 @@ bool UCastAssetFactory::ConfigureProperties()
 
 bool UCastAssetFactory::DoesSupportClass(UClass* Class)
 {
-	// return Class == UStaticMesh::StaticClass() ||
-	// Class == USkeletalMesh::StaticClass() ||
-	// Class == UAnimSequence::StaticClass();
 	return false;
 }
 
@@ -69,93 +62,6 @@ FText UCastAssetFactory::GetDisplayName() const
 UClass* UCastAssetFactory::ResolveSupportedClass()
 {
 	return UStaticMesh::StaticClass();
-}
-
-UObject* UCastAssetFactory::HandleExistingAsset(UObject* InParent, FName InName, const FString& InFilename)
-{
-	UObject* ExistingObject = nullptr;
-	if (InParent)
-	{
-		ExistingObject = StaticFindObject(UObject::StaticClass(), InParent, *InName.ToString());
-		if (ExistingObject)
-		{
-			// TODO: 重新导入
-			FReimportHandler* ReimportHandler = nullptr;
-			UFactory* ReimportHandlerFactory = nullptr;
-			UAssetImportTask* HandlerOriginalImportTask = nullptr;
-			bool bIsObjectSupported = false;
-			UE_LOG(LogCast, Warning, TEXT("'%s' already exists and cannot be imported"), *InFilename)
-		}
-	}
-	return ExistingObject;
-}
-
-void UCastAssetFactory::HandleMaterialImport(FString&& ParentPath, const FString& InFilename,
-                                             FCastImporter* CastImporter,
-                                             FCastImportOptions* ImportOptions)
-{
-	FString FilePath = FPaths::GetPath(InFilename);
-	FString TextureBasePath;
-	FString TextureFormat = ImportOptions->TextureFormat;
-
-	if (ImportOptions->TexturePathType == ECastTextureImportType::CastTIT_Default)
-	{
-		TextureBasePath = FPaths::Combine(FilePath, TEXT("_images"));
-		CastImporter->AnalysisMaterial(ParentPath, FilePath, TextureBasePath, TextureFormat);
-	}
-	else if (ImportOptions->TexturePathType == ECastTextureImportType::CastTIT_GlobalMaterials)
-	{
-		TextureBasePath = ImportOptions->GlobalMaterialPath;
-		CastImporter->AnalysisMaterial(ParentPath, FilePath, TextureBasePath, TextureFormat);
-	}
-	else if (ImportOptions->TexturePathType == ECastTextureImportType::CastTIT_GlobalImages)
-	{
-		TextureBasePath = ImportOptions->GlobalMaterialPath;
-		CastImporter->AnalysisMaterial(ParentPath, FilePath, TextureBasePath, TextureFormat, true);
-	}
-}
-
-UObject* UCastAssetFactory::ExecuteImportProcess(UObject* InParent, FName InName, EObjectFlags Flags,
-                                                 const FString& InFilename, FCastImporter* CastImporter,
-                                                 FCastImportOptions* ImportOptions, FString InCurrentFilename)
-{
-	UObject* CreatedObject = nullptr;
-	if (!CastImporter->ImportFromFile(InCurrentFilename))
-	{
-		UE_LOG(LogCast, Error, TEXT("Fail to Import Cast File"));
-	}
-	else
-	{
-		if (ImportOptions->bImportMaterial && CastImporter->SceneInfo.TotalMaterialNum > 0)
-		{
-			FString ParentPath = FPaths::GetPath(InParent->GetPathName());
-			HandleMaterialImport(MoveTemp(ParentPath), InFilename, CastImporter, ImportOptions);
-		}
-		if (!ImportOptions->bImportAsSkeletal && ImportOptions->bImportMesh)
-		{
-			UStaticMesh* NewStaticMesh = CastImporter->ImportStaticMesh(InParent, InName, Flags);
-			CreatedObject = NewStaticMesh;
-		}
-		else if (ImportOptions->bImportMesh && CastImporter->SceneInfo.TotalGeometryNum > 0)
-		{
-			UPackage* Package = Cast<UPackage>(InParent);
-
-			FName OutputName = *FPaths::GetBaseFilename(InFilename);
-
-			CastScene::FImportSkeletalMeshArgs ImportSkeletalMeshArgs;
-			ImportSkeletalMeshArgs.InParent = Package;
-			ImportSkeletalMeshArgs.Name = OutputName;
-			ImportSkeletalMeshArgs.Flags = Flags;
-
-			USkeletalMesh* BaseSkeletalMesh = CastImporter->ImportSkeletalMesh(ImportSkeletalMeshArgs);
-			CreatedObject = BaseSkeletalMesh;
-		}
-		else if (ImportOptions->bImportAnimations && CastImporter->SceneInfo.bHasAnimation)
-		{
-			CreatedObject = CastImporter->ImportAnim(InParent, ImportOptions->Skeleton);
-		}
-	}
-	return CreatedObject;
 }
 
 UObject* UCastAssetFactory::FactoryCreateFile(
@@ -301,19 +207,6 @@ UObject* UCastAssetFactory::FactoryCreateFile(
 	}
 
 	return ResultObject;
-}
-
-bool UCastAssetFactory::DetectImportType(const FString& InFilename)
-{
-	FCastImporter* CastImporter = FCastImporter::GetInstance();
-	int32 ImportType = CastImporter->GetImportType(InFilename);
-	if (ImportType == -1)
-	{
-		CastImporter->ReleaseScene();
-		return false;
-	}
-
-	return true;
 }
 
 FText UCastAssetFactory::GetImportTaskText(const FText& TaskText) const

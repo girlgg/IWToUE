@@ -10,10 +10,8 @@ void SCastOptionWindow::Construct(const FArguments& InArgs)
 {
 	ImportUI = InArgs._ImportUI;
 	WidgetWindow = InArgs._WidgetWindow;
-
 	check(ImportUI);
 
-	TSharedPtr<SBox> ImportTypeDisplay;
 	TSharedPtr<SHorizontalBox> FbxHeaderButtons;
 	TSharedPtr<SBox> InspectorBox;
 	this->ChildSlot
@@ -23,12 +21,6 @@ void SCastOptionWindow::Construct(const FArguments& InArgs)
 		.MaxDesiredWidth(InArgs._MaxWindowWidth)
 		[
 			SNew(SVerticalBox)
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SAssignNew(ImportTypeDisplay, SBox)
-			]
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f)
@@ -76,7 +68,7 @@ void SCastOptionWindow::Construct(const FArguments& InArgs)
 					.ToolTipText(LOCTEXT("FbxOptionWindow_ImportAll_ToolTip",
 					                     "Import all files with these same settings"))
 					.IsEnabled(this, &SCastOptionWindow::CanImport)
-					.OnClicked(this, &SCastOptionWindow::OnImportAll)
+					.OnClicked(this, &SCastOptionWindow::OnRequestImportAll)
 				]
 				+ SUniformGridPanel::Slot(2, 0)
 				[
@@ -84,7 +76,7 @@ void SCastOptionWindow::Construct(const FArguments& InArgs)
 					.HAlign(HAlign_Center)
 					.Text(LOCTEXT("CastOptionWindow_Import", "Import"))
 					.IsEnabled(this, &SCastOptionWindow::CanImport)
-					.OnClicked(this, &SCastOptionWindow::OnImport)
+					.OnClicked(this, &SCastOptionWindow::OnRequestImport)
 				]
 				+ SUniformGridPanel::Slot(3, 0)
 				[
@@ -92,7 +84,7 @@ void SCastOptionWindow::Construct(const FArguments& InArgs)
 					.HAlign(HAlign_Center)
 					.Text(LOCTEXT("CastOptionWindow_Cancel", "Cancel"))
 					.ToolTipText(LOCTEXT("FbxOptionWindow_Cancel_ToolTip", "Cancels importing this Cast file"))
-					.OnClicked(this, &SCastOptionWindow::OnCancel)
+					.OnClicked(this, &SCastOptionWindow::OnRequestCancel)
 				]
 			]
 		]
@@ -107,25 +99,16 @@ void SCastOptionWindow::Construct(const FArguments& InArgs)
 
 	InspectorBox->SetContent(DetailsView->AsShared());
 
-	ImportTypeDisplay->SetContent(
-		SNew(SBorder)
-		.Padding(FMargin(3))
-		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(this, &SCastOptionWindow::GetImportTypeDisplayText)
-			]
-		]
-	);
-
 	DetailsView->SetObject(ImportUI);
 
 	RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateSP(this, &SCastOptionWindow::SetFocusPostConstruct));
+}
+
+void SCastOptionWindow::CloseWindow()
+{
+	if (WidgetWindow.IsValid()) {
+		WidgetWindow.Pin()->RequestDestroyWindow();
+	}
 }
 
 EActiveTimerReturnType SCastOptionWindow::SetFocusPostConstruct(double InCurrentTime, float InDeltaTime)
@@ -145,14 +128,10 @@ bool SCastOptionWindow::CanImport() const
 
 FReply SCastOptionWindow::OnResetToDefaultClick() const
 {
-	// ImportUI->ResetToDefault();
-	DetailsView->SetObject(ImportUI, true);
-	return FReply::Handled();
-}
-
-FText SCastOptionWindow::GetImportTypeDisplayText() const
-{
-	return FText::GetEmpty();
+	if(ImportUI) {
+		DetailsView->SetObject(ImportUI, true);
+	}
+	return FReply::Handled();	
 }
 
 #undef LOCTEXT_NAMESPACE

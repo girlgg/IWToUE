@@ -39,7 +39,6 @@ void SMapSettingsPage::Construct(const FArguments& InArgs, TSharedRef<FMapSettin
 						TAttribute<FText>(
 							ViewModel.Get(),
 							&FMapSettingsViewModel::GetExportDirectory),
-						FOnTextChanged(),
 						FOnTextCommitted::CreateSP(ViewModel.Get(),
 						                           &FMapSettingsViewModel::HandleExportDirectoryTextCommitted),
 						FOnClicked::CreateSP(ViewModel.Get(),

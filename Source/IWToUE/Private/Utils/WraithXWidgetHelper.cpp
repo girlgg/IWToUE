@@ -52,7 +52,6 @@ TSharedRef<SWidget> WraithXWidgetHelper::CreateSettingRow(const FText& SettingNa
 
 TSharedRef<SWidget> WraithXWidgetHelper::CreatePathSettingRow(const FText& SettingName, const FText& TooltipText,
                                                               const TAttribute<FText>& PathAttribute,
-                                                              FOnTextChanged PathTextChangedHandler,
                                                               FOnTextCommitted PathTextCommittedHandler,
                                                               FOnClicked BrowseClickHandler)
 {
@@ -75,7 +74,6 @@ TSharedRef<SWidget> WraithXWidgetHelper::CreatePathSettingRow(const FText& Setti
 			[
 				SNew(SEditableTextBox)
 				.Text(PathAttribute)
-				.OnTextChanged(PathTextChangedHandler)
 				.OnTextCommitted(PathTextCommittedHandler)
 				.HintText(LOC_SETTINGS("PathHint", "Enter path or click browse..."))
 			]

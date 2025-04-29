@@ -6,35 +6,36 @@
 #include "IContentBrowserSingleton.h"
 #include "Localization/IWToUELocalizationManager.h"
 #include "WraithX/WraithSettings.h"
+#include "WraithX/WraithSettingsManager.h"
 
 #define LOC_SETTINGS(Key, Text) FIWToUELocalizationManager::Get().GetText(Key, Text)
 
-FAnimationSettingsViewModel::FAnimationSettingsViewModel(UWraithSettings* InSettings)
-	: Settings(InSettings)
+FAnimationSettingsViewModel::FAnimationSettingsViewModel()
 {
-	check(Settings != nullptr);
 }
 
 FText FAnimationSettingsViewModel::GetExportDirectory() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return FText::FromString(Settings->Animation.ExportDirectory);
 }
 
 FText FAnimationSettingsViewModel::GetTargetSkeletonPath() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return FText::FromString(Settings->Animation.TargetSkeletonPath);
 }
 
 FReply FAnimationSettingsViewModel::HandleBrowseExportDirectoryClicked()
 {
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (DesktopPlatform)
+	UWraithSettings* Settings = GetSettings();
+	if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
 	{
-		FString FolderName;
 		const FString Title = LOC_SETTINGS("BrowseAnimExportDirTitle", "Select Animation Export Directory").ToString();
 		const void* ParentWindowHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
-		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title, Settings->Animation.ExportDirectory,
-		                                         FolderName))
+		if (FString FolderName; DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title,
+		                                                             Settings->Animation.ExportDirectory,
+		                                                             FolderName))
 		{
 			if (Settings->Animation.ExportDirectory != FolderName)
 			{
@@ -48,6 +49,7 @@ FReply FAnimationSettingsViewModel::HandleBrowseExportDirectoryClicked()
 
 void FAnimationSettingsViewModel::HandleExportDirectoryTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo)
 {
+	UWraithSettings* Settings = GetSettings();
 	if (Settings->Animation.ExportDirectory != NewText.ToString())
 	{
 		Settings->Animation.ExportDirectory = NewText.ToString();
@@ -66,6 +68,7 @@ FReply FAnimationSettingsViewModel::HandleBrowseTargetSkeletonClicked()
 	AssetPickerConfig.bAllowNullSelection = true;
 	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateLambda([this](const FAssetData& AssetData)
 	{
+		UWraithSettings* Settings = GetSettings();
 		FString NewPath = AssetData.IsValid() ? AssetData.GetObjectPathString() : TEXT("");
 		if (Settings->Animation.TargetSkeletonPath != NewPath)
 		{
@@ -77,6 +80,7 @@ FReply FAnimationSettingsViewModel::HandleBrowseTargetSkeletonClicked()
 	AssetPickerConfig.OnAssetEnterPressed = FOnAssetEnterPressed::CreateLambda(
 		[this](const TArray<FAssetData>& SelectedAssets)
 		{
+			UWraithSettings* Settings = GetSettings();
 			if (SelectedAssets.Num() > 0)
 			{
 				FString NewPath = SelectedAssets[0].IsValid() ? SelectedAssets[0].GetObjectPathString() : TEXT("");
@@ -88,6 +92,7 @@ FReply FAnimationSettingsViewModel::HandleBrowseTargetSkeletonClicked()
 			}
 			FSlateApplication::Get().DismissAllMenus();
 		});
+	UWraithSettings* Settings = GetSettings();
 	if (!Settings->Animation.TargetSkeletonPath.IsEmpty())
 	{
 		AssetPickerConfig.InitialAssetSelection = FAssetData(
@@ -111,6 +116,7 @@ FReply FAnimationSettingsViewModel::HandleBrowseTargetSkeletonClicked()
 
 void FAnimationSettingsViewModel::HandleTargetSkeletonTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo)
 {
+	UWraithSettings* Settings = GetSettings();
 	if (Settings->Animation.TargetSkeletonPath != NewText.ToString())
 	{
 		Settings->Animation.TargetSkeletonPath = NewText.ToString();
@@ -118,7 +124,21 @@ void FAnimationSettingsViewModel::HandleTargetSkeletonTextCommitted(const FText&
 	}
 }
 
+UWraithSettings* FAnimationSettingsViewModel::GetSettings() const
+{
+	if (GEditor)
+	{
+		if (UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>())
+		{
+			return SettingsManager->GetSettingsMutable();
+		}
+	}
+	UE_LOG(LogTemp, Error,
+	       TEXT("FAnimationSettingsViewModel::GetSettings - Could not get Settings Manager or Settings Object!"));
+	return nullptr;
+}
+
 void FAnimationSettingsViewModel::SaveSettings()
 {
-	if (Settings) Settings->Save();
+	if (UWraithSettings* Settings = GetSettings()) Settings->Save();
 }

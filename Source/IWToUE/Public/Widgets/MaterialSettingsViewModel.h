@@ -7,7 +7,7 @@ class UWraithSettings;
 class FMaterialSettingsViewModel : public TSharedFromThis<FMaterialSettingsViewModel>
 {
 public:
-	FMaterialSettingsViewModel(UWraithSettings* InSettings);
+	FMaterialSettingsViewModel();
 
 	FText GetExportDirectory() const;
 	ECheckBoxState GetUseGlobalPathCheckState() const;
@@ -21,7 +21,7 @@ public:
 	void HandleGlobalMaterialPathTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo);
 
 private:
+	UWraithSettings* GetSettings() const;
 	void SaveSettings();
-	UWraithSettings* Settings;
 };
 

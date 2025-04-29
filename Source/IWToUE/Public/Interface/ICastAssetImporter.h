@@ -11,6 +11,7 @@ struct FCastRoot;
 struct FCastModelInfo;
 struct FCastMaterialInfo;
 class FCastTextureInfo;
+
 DECLARE_DELEGATE_TwoParams(FOnCastImportProgress, float /*ProgressFraction*/, const FText& /*StatusText*/);
 
 class ICastAssetImporter

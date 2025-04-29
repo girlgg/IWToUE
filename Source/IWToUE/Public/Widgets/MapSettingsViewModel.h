@@ -7,7 +7,7 @@ class UWraithSettings;
 class FMapSettingsViewModel : public TSharedFromThis<FMapSettingsViewModel>
 {
 public:
-	FMapSettingsViewModel(UWraithSettings* InSettings);
+	FMapSettingsViewModel();
 
 	FText GetExportDirectory() const;
 
@@ -15,6 +15,6 @@ public:
 	void HandleExportDirectoryTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo);
 
 private:
+	UWraithSettings* GetSettings() const;
 	void SaveSettings();
-	UWraithSettings* Settings;
 };

@@ -9,7 +9,7 @@ class UWraithSettings;
 class FModelSettingsViewModel : public TSharedFromThis<FModelSettingsViewModel>
 {
 public:
-	FModelSettingsViewModel(UWraithSettings* InSettings);
+	FModelSettingsViewModel();
 
 	FText GetExportDirectory() const;
 	ECheckBoxState GetExportLoDsCheckState() const;
@@ -38,10 +38,9 @@ public:
 	                                            ESelectInfo::Type SelectInfo);
 
 private:
+	UWraithSettings* GetSettings() const;
 	void SaveSettings();
 	void PopulateEnumOptions();
-
-	UWraithSettings* Settings;
 
 	TArray<TSharedPtr<ETextureExportPathMode>> TexturePathModeOptionsSource;
 	TArray<TSharedPtr<EMaterialExportPathMode>> MaterialPathModeOptionsSource;

@@ -21,14 +21,23 @@ enum class EWraithXSortColumn : uint8
 FName EWraithXSortColumnToFName(EWraithXSortColumn Column);
 EWraithXSortColumn FNameToEWraithXSortColumn(FName Name);
 
+/**
+ * @class FWraithXViewModel
+ * @brief ViewModel for the main WraithX asset import UI (SWraithXWidget).
+ * Manages UI state, handles user commands, interacts with FAssetImportManager,
+ * performs filtering/sorting, and notifies the View of changes.
+ */
 class FWraithXViewModel : public TSharedFromThis<FWraithXViewModel>
 {
 public:
 	FWraithXViewModel();
 	~FWraithXViewModel();
 
-	/** Initializes the ViewModel, creating dependencies and binding delegates. */
-	void Initialize(TSharedPtr<FAssetImportManager> InAssetImportManager);
+	/**
+	 * Initializes the ViewModel.
+	 * @param InAssetImportManager The core manager for asset discovery and import operations.
+	 */
+	void Initialize(const TSharedPtr<FAssetImportManager>& InAssetImportManager);
 
 	/** Cleans up resources and unbinds delegates. Call before destruction if needed explicitly. */
 	void Cleanup();
@@ -65,22 +74,20 @@ public:
 
 	// --- Getters for View Data Binding ---
 
-	/** Gets the currently displayed list of filtered and sorted assets. */
 	const TArray<TSharedPtr<FCoDAsset>>& GetFilteredItems() const;
-
 	const TArray<TSharedPtr<FCoDAsset>>& GetSelectedItems() const;
 
 	/** Gets the current loading progress (0.0 to 1.0). */
-	float GetLoadingProgress() const;
+	float GetCurrentProgress() const;
 
 	/** Returns true if an operation (load/refresh/import) is in progress. */
-	bool IsLoading() const;
+	bool IsBusy() const;
 
 	/** Gets the total number of assets loaded (before filtering). */
 	int32 GetTotalAssetCount() const;
 
 	/** Gets the number of assets currently displayed after filtering. */
-	int32 GetFilteredAssetCount() const;
+	int32 GetFilteredAssetCount();
 
 	/** Gets the current import path string. */
 	const FString& GetImportPath() const;
@@ -94,7 +101,7 @@ public:
 	/** Gets the current search text. */
 	const FString& GetSearchText() const;
 
-	// --- UI调用的命令 ---
+	// --- UI Commands (Called by View) ---
 
 	/** Sets the search text and triggers filtering. */
 	void SetSearchText(const FString& InText);
@@ -103,16 +110,13 @@ public:
 	void ClearSearchText();
 
 	/** Initiates loading the initial game asset data. */
-	void LoadGame();
-
-	/** Initiates refreshing the game asset data. */
-	void RefreshGame();
+	void StartDiscovery();
 
 	/** Initiates importing the currently selected assets. */
 	void ImportSelectedAssets();
 
 	/** Initiates importing all currently filtered assets. */
-	void ImportAllAssets();
+	void ImportAllFilteredAssets();
 
 	/** Sets the import path, performing validation. */
 	void SetImportPath(const FString& Path);
@@ -121,49 +125,47 @@ public:
 	void SetOptionalParams(const FString& Params);
 
 	/** Opens a directory browser to select the import path. */
-	void BrowseImportPath(TSharedPtr<SWindow> ParentWindow);
+	void BrowseImportPath(const TSharedPtr<SWindow>& ParentWindow);
 
 	/** Sets the column to sort by and toggles the sort mode. */
 	void SetSortColumn(FName ColumnId);
 
 	/** Updates the ViewModel's knowledge of which items are selected in the View. */
-	void SetSelectedItems(const TArray<TSharedPtr<FCoDAsset>>& InSelectedItems);
+	void UpdateSelection(const TArray<TSharedPtr<FCoDAsset>>& InSelectedItems);
 
 	/** Called when an asset item is double-clicked in the View. */
-	void RequestPreviewAsset(TSharedPtr<FCoDAsset> Item);
+	void RequestPreviewAsset(const TSharedPtr<FCoDAsset>& Item);
 
 private:
+	// --- Internal State Update ---
 	/** Sets the loading state and notifies the View. */
-	void SetLoadingState(bool bNewLoadingState);
-
+	void SetBusyState(bool bNewBusyState);
 	/** Updates the loading progress and notifies the View. Ensures call is on GameThread. */
-	void UpdateLoadingProgress(float InProgress);
+	void UpdateProgress(float InProgress);
+	/** Updates state and notifies View on Game Thread */
+	void UpdateAssetLists(TArray<TSharedPtr<FCoDAsset>> NewFilteredItems, int32 NewTotalCount);
 
-	/** Handles the completion callback from FAssetImportManager. */
-	void HandleAssetInitCompleted();
+	// --- Delegate Handlers (from AssetImportManager) ---
 
-	/** Handles the progress callback from FAssetImportManager. */
-	void HandleAssetLoadingProgress(float InProgress);
+	void HandleDiscoveryCompleted();
+	void HandleDiscoveryProgress(float InProgress);
+	void HandleImportCompleted(bool bSuccess);
+	void HandleImportProgress(float Progress);
 
+	// --- Filtering and Sorting ---
 	/** Performs filtering and sorting asynchronously. */
 	void ApplyFilteringAndSortingAsync();
-
 	/** Cancels any ongoing filtering/sorting task. */
-	void CancelCurrentAsyncTask();
-
+	void CancelCurrentFilterSortTask();
 	/** Filters the AllLoadedAssets based on CurrentSearchText. (Runs on background thread) */
 	TArray<TSharedPtr<FCoDAsset>> FilterAssets_WorkerThread(const TArray<TSharedPtr<FCoDAsset>>& AssetsToFilter,
 	                                                        const FString& SearchText);
-
 	/** Sorts the FilteredItems based on CurrentSortColumn and CurrentSortMode. (Runs on GameThread or background) */
-	void SortDataInternal(TArray<TSharedPtr<FCoDAsset>>& ItemsToSort);
-
-	/** Updates the ViewModel's internal state after async task completes. (Runs on GameThread) */
-	void FinalizeUpdate_GameThread(TArray<TSharedPtr<FCoDAsset>> NewFilteredItems, int32 NewTotalCount);
-
+	void SortFilteredItems_Internal(TArray<TSharedPtr<FCoDAsset>>& ItemsToSort) const;
 	/** Helper to check if an item matches the current search criteria. */
-	bool MatchSearchCondition(const TSharedPtr<FCoDAsset>& Item, const TArray<FString>& SearchTokens);
+	static bool MatchSearchCondition(const TSharedPtr<FCoDAsset>& Item, const TArray<FString>& SearchTokens);
 
+	// --- Helpers ---
 	/** Helper function to safely execute delegates on the Game Thread */
 	template <typename DelegateType, typename... ParamTypes>
 	void ExecuteDelegateOnGameThread(DelegateType& Delegate, ParamTypes... Params);
@@ -171,8 +173,13 @@ private:
 	/** Shows a notification via the delegate */
 	void ShowNotification(const FText& Message);
 
+	// --- Dependencies ---
+
 	TSharedPtr<FAssetImportManager> AssetImportManager;
-	TArray<TSharedPtr<FCoDAsset>> AllLoadedAssets;
+
+	// --- Data & State ---
+
+	TArray<TSharedPtr<FCoDAsset>> AllDiscoveredAssets;
 	TArray<TSharedPtr<FCoDAsset>> FilteredItems;
 	TArray<TSharedPtr<FCoDAsset>> SelectedItems;
 
@@ -182,25 +189,26 @@ private:
 	FString ImportPath;
 	FString OptionalParams;
 
-	int32 TotalAssetCount = 0;
-	float CurrentLoadingProgress = 0.0f;
+	std::atomic<int32> TotalAssetCount = 0;
+	std::atomic<float> CurrentProgressValue = 0.0f;
+	std::atomic<bool> bIsBusyFlag = false;
 
 	EWraithXSortColumn CurrentSortColumn = EWraithXSortColumn::None;
 	EColumnSortMode::Type CurrentSortMode = EColumnSortMode::None;
 
 	/** Handle for the active async filtering/sorting task */
-	TFuture<TArray<TSharedPtr<FCoDAsset>>> CurrentAsyncTask;
-
-	bool bIsLoading = false;
-
-	friend class SWraithXWidget;
+	TFuture<TArray<TSharedPtr<FCoDAsset>>> CurrentFilterSortTask;
 };
 
 template <typename T, typename = void>
-struct THasBroadcast : std::false_type {};
+struct THasBroadcast : std::false_type
+{
+};
 
 template <typename T>
-struct THasBroadcast<T, std::void_t<decltype(std::declval<T>().Broadcast())>> : std::true_type {};
+struct THasBroadcast<T, std::void_t<decltype(std::declval<T>().Broadcast())>> : std::true_type
+{
+};
 
 template <typename DelegateType, typename... ParamTypes>
 void FWraithXViewModel::ExecuteDelegateOnGameThread(DelegateType& Delegate, ParamTypes... Params)
@@ -209,7 +217,7 @@ void FWraithXViewModel::ExecuteDelegateOnGameThread(DelegateType& Delegate, Para
 
 	auto Invoke = [&Delegate, ParamsTuple = std::move(ParamsTuple)]() mutable
 	{
-		std::apply([&Delegate]<typename... T0>(T0&&... args) 
+		std::apply([&Delegate]<typename... T0>(T0&&... args)
 		{
 			if constexpr (THasBroadcast<DelegateType>::value)
 			{
@@ -221,7 +229,7 @@ void FWraithXViewModel::ExecuteDelegateOnGameThread(DelegateType& Delegate, Para
 			}
 		}, ParamsTuple);
 	};
-    
+
 	if (IsInGameThread())
 	{
 		Invoke();

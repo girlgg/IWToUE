@@ -39,7 +39,6 @@ void SAudioSettingsPage::Construct(const FArguments& InArgs, TSharedRef<FAudioSe
 						TAttribute<FText>(
 							ViewModel.Get(),
 							&FAudioSettingsViewModel::GetExportDirectory),
-						FOnTextChanged(),
 						FOnTextCommitted::CreateSP(ViewModel.Get(),
 						                           &FAudioSettingsViewModel::HandleExportDirectoryTextCommitted),
 						FOnClicked::CreateSP(ViewModel.Get(),

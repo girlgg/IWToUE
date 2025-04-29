@@ -9,6 +9,5 @@ namespace WraithXWidgetHelper
 	                                     TSharedRef<SWidget> SettingWidget);
 	TSharedRef<SWidget> CreatePathSettingRow(const FText& SettingName, const FText& TooltipText,
 	                                         const TAttribute<FText>& PathAttribute,
-	                                         FOnTextChanged PathTextChangedHandler,
 	                                         FOnTextCommitted PathTextCommittedHandler, FOnClicked BrowseClickHandler);
 }

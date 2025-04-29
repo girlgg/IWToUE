@@ -52,7 +52,7 @@ struct FWraithAsset : public TSharedFromThis<FWraithAsset>
 	// The type of asset we have
 	EWraithAssetType AssetType{EWraithAssetType::Unknown};
 	// The name of this asset
-	FString AssetName{"WraithAsset"};
+	FString AssetName;
 	// The status of this asset
 	EWraithAssetStatus AssetStatus{EWraithAssetStatus::NotLoaded};
 	// The size of this asset, -1 = N/A

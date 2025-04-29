@@ -2,7 +2,6 @@
 #include "CastImportUI.h"
 #include "CastManager/CastImportOptions.h"
 
-
 class SCastOptionWindow final : public SCompoundWidget
 {
 public:
@@ -25,40 +24,30 @@ public:
 	void Construct(const FArguments& InArgs);
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 
-	FReply OnImport()
+	FReply OnRequestImport()
 	{
 		bShouldImport = true;
-		if (WidgetWindow.IsValid())
-		{
-			WidgetWindow.Pin()->RequestDestroyWindow();
-		}
+		CloseWindow();
 		return FReply::Handled();
 	}
 
-	FReply OnImportAll()
+	FReply OnRequestImportAll()
 	{
 		bShouldImportAll = true;
-		return OnImport();
+		return OnRequestImport();
 	}
 
-	FReply OnCancel()
+	FReply OnRequestCancel()
 	{
 		bShouldImport = false;
 		bShouldImportAll = false;
-		if (WidgetWindow.IsValid())
-		{
-			WidgetWindow.Pin()->RequestDestroyWindow();
-		}
+		CloseWindow();
 		return FReply::Handled();
 	}
 
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override
 	{
-		if (InKeyEvent.GetKey() == EKeys::Escape)
-		{
-			return OnCancel();
-		}
-
+		if (InKeyEvent.GetKey() == EKeys::Escape) { return OnRequestCancel(); }
 		return FReply::Unhandled();
 	}
 
@@ -80,15 +69,16 @@ public:
 	}
 
 private:
+	void CloseWindow();
 	EActiveTimerReturnType SetFocusPostConstruct(double InCurrentTime, float InDeltaTime);
 	bool CanImport() const;
 	FReply OnResetToDefaultClick() const;
-	FText GetImportTypeDisplayText() const;
 
 	UCastImportUI* ImportUI;
 	TSharedPtr<IDetailsView> DetailsView;
 	TWeakPtr<SWindow> WidgetWindow;
 	TSharedPtr<SButton> ImportAllButton;
+	
 	bool bShouldImport;
 	bool bShouldImportAll;
 };

@@ -3,46 +3,49 @@
 #include "DesktopPlatformModule.h"
 #include "Localization/IWToUELocalizationManager.h"
 #include "WraithX/WraithSettings.h"
+#include "WraithX/WraithSettingsManager.h"
 
 #define LOC_SETTINGS(Key, Text) FIWToUELocalizationManager::Get().GetText(Key, Text)
 
-FMaterialSettingsViewModel::FMaterialSettingsViewModel(UWraithSettings* InSettings)
-	: Settings(InSettings)
+FMaterialSettingsViewModel::FMaterialSettingsViewModel()
 {
 }
 
 FText FMaterialSettingsViewModel::GetExportDirectory() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return FText::FromString(Settings->Material.ExportDirectory);
 }
 
 ECheckBoxState FMaterialSettingsViewModel::GetUseGlobalPathCheckState() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return Settings->Material.bUseGlobalMaterialPath ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
 FText FMaterialSettingsViewModel::GetGlobalMaterialPath() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return FText::FromString(Settings->Material.GlobalMaterialPath);
 }
 
 bool FMaterialSettingsViewModel::IsGlobalMaterialPathEnabled() const
 {
+	const UWraithSettings* Settings = GetSettings();
 	return Settings->Material.bUseGlobalMaterialPath;
 }
 
 FReply FMaterialSettingsViewModel::HandleBrowseExportDirectoryClicked()
 {
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (DesktopPlatform)
+	UWraithSettings* Settings = GetSettings();
+	if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
 	{
-		FString FolderName;
 		const FString Title = LOC_SETTINGS("BrowseMatExportDirTitle", "Select Default Material Export Directory").
 			ToString();
 		const void* ParentWindowHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
 
-		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title, Settings->Material.ExportDirectory,
-		                                         FolderName))
+		if (FString FolderName; DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title, Settings->Material.ExportDirectory,
+		                                                             FolderName))
 		{
 			if (Settings->Material.ExportDirectory != FolderName)
 			{
@@ -56,6 +59,7 @@ FReply FMaterialSettingsViewModel::HandleBrowseExportDirectoryClicked()
 
 void FMaterialSettingsViewModel::HandleExportDirectoryTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo)
 {
+	UWraithSettings* Settings = GetSettings();
 	if (Settings->Material.ExportDirectory != NewText.ToString())
 	{
 		Settings->Material.ExportDirectory = NewText.ToString();
@@ -65,7 +69,8 @@ void FMaterialSettingsViewModel::HandleExportDirectoryTextCommitted(const FText&
 
 void FMaterialSettingsViewModel::HandleUseGlobalPathCheckStateChanged(ECheckBoxState NewState)
 {
-	bool bNewState = (NewState == ECheckBoxState::Checked);
+	UWraithSettings* Settings = GetSettings();
+	const bool bNewState = (NewState == ECheckBoxState::Checked);
 	if (Settings->Material.bUseGlobalMaterialPath != bNewState)
 	{
 		Settings->Material.bUseGlobalMaterialPath = bNewState;
@@ -75,8 +80,8 @@ void FMaterialSettingsViewModel::HandleUseGlobalPathCheckStateChanged(ECheckBoxS
 
 FReply FMaterialSettingsViewModel::HandleBrowseGlobalMaterialPathClicked()
 {
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (DesktopPlatform)
+	UWraithSettings* Settings = GetSettings();
+	if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
 	{
 		FString FolderName;
 		const FString Title = LOC_SETTINGS("BrowseGlobalMatPathTitle", "Select Global Material Export Path").ToString();
@@ -99,6 +104,7 @@ FReply FMaterialSettingsViewModel::HandleBrowseGlobalMaterialPathClicked()
 void FMaterialSettingsViewModel::HandleGlobalMaterialPathTextCommitted(const FText& NewText,
                                                                        ETextCommit::Type CommitInfo)
 {
+	UWraithSettings* Settings = GetSettings();
 	if (Settings->Material.GlobalMaterialPath != NewText.ToString())
 	{
 		Settings->Material.GlobalMaterialPath = NewText.ToString();
@@ -106,7 +112,21 @@ void FMaterialSettingsViewModel::HandleGlobalMaterialPathTextCommitted(const FTe
 	}
 }
 
+UWraithSettings* FMaterialSettingsViewModel::GetSettings() const
+{
+	if (GEditor)
+	{
+		if (UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>())
+		{
+			return SettingsManager->GetSettingsMutable();
+		}
+	}
+	UE_LOG(LogTemp, Error,
+	       TEXT("FMaterialSettingsViewModel::GetSettings - Could not get Settings Manager or Settings Object!"));
+	return nullptr;
+}
+
 void FMaterialSettingsViewModel::SaveSettings()
 {
-	if (Settings) Settings->Save();
+	if (UWraithSettings* Settings = GetSettings()) Settings->Save();
 }

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "Widgets/CastImportUI.h"
+#include "WraithX/WraithXViewModel.h"
 
 class FCastMapImporter
 {
@@ -30,4 +31,6 @@ private:
 
 	TSharedPtr<SEditableTextBox> GlobalMaterialPathBox;
 	ECastTextureImportType CurrentImportType{ECastTextureImportType::CastTIT_Default};
+
+	TSharedRef<FWraithXViewModel> ViewModel = MakeShared<FWraithXViewModel>();
 };

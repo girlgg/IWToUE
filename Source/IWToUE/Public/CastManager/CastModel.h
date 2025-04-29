@@ -84,7 +84,7 @@ public:
 struct FCastMaterialInfo
 {
 	uint64 MaterialHash = 0;
-
+	uint64 MaterialPtr = 0;
 	FString Name;
 	FString TechSet;
 	FString Type;

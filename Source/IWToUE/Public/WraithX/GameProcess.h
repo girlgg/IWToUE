@@ -110,14 +110,6 @@ private:
 	void HandleAssetDiscovered(TSharedPtr<FCoDAsset> DiscoveredAsset);
 	void HandleDiscoveryComplete();
 
-	bool LocateGameInfo();
-
-	void ProcessModelAsset(FXAsset64 AssetNode);
-	void ProcessImageAsset(FXAsset64 AssetNode);
-	void ProcessAnimAsset(FXAsset64 AssetNode);
-	void ProcessMaterialAsset(FXAsset64 AssetNode);
-	void ProcessSoundAsset(FXAsset64 AssetNode);
-
 	HANDLE ProcessHandle{nullptr};
 	FString ProcessPath;
 	DWORD ProcessId{0};

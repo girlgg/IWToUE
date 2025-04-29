@@ -120,8 +120,6 @@ void SGeneralSettingsPage::Construct(const FArguments& InArgs, TSharedRef<FGener
 						LOC_SETTINGS("CordycepPathTooltip",
 						             "Path to the Cordycep executable or root folder."),
 						TAttribute<FText>(ViewModel.Get(), &FGeneralSettingsViewModel::GetCordycepPath),
-						FOnTextChanged::CreateSP(ViewModel.Get(),
-						                         &FGeneralSettingsViewModel::HandleCordycepPathTextChanged),
 						FOnTextCommitted::CreateSP(ViewModel.Get(),
 						                           &FGeneralSettingsViewModel::HandleCordycepPathTextCommitted),
 						FOnClicked::CreateSP(ViewModel.Get(),
@@ -134,8 +132,6 @@ void SGeneralSettingsPage::Construct(const FArguments& InArgs, TSharedRef<FGener
 						LOC_SETTINGS("GamePathLabel", "Game Path"),
 						LOC_SETTINGS("GamePathTooltip", "Path to the game's root directory."),
 						TAttribute<FText>(ViewModel.Get(), &FGeneralSettingsViewModel::GetGamePath),
-						FOnTextChanged::CreateSP(ViewModel.Get(),
-						                         &FGeneralSettingsViewModel::HandleGamePathTextChanged),
 						FOnTextCommitted::CreateSP(ViewModel.Get(),
 						                           &FGeneralSettingsViewModel::HandleGamePathTextCommitted),
 						FOnClicked::CreateSP(ViewModel.Get(),
@@ -197,8 +193,6 @@ void SGeneralSettingsPage::Construct(const FArguments& InArgs, TSharedRef<FGener
 						             "Additional command-line parameters when launching the game."),
 						SNew(SEditableTextBox)
 						.Text(ViewModel.Get(), &FGeneralSettingsViewModel::GetLaunchParameters)
-						.OnTextChanged(ViewModel.Get(),
-						               &FGeneralSettingsViewModel::HandleLaunchParametersTextChanged)
 						.OnTextCommitted(ViewModel.Get(),
 						                 &FGeneralSettingsViewModel::HandleLaunchParametersTextCommitted)
 						.HintText(LOC_SETTINGS("LaunchParamsHint", "e.g., -windowed -log"))

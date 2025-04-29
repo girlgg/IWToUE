@@ -23,6 +23,9 @@ bool FSlateCastImportUIHandler::GetImportOptions(FCastImportOptions& OutOptions,
 		ParentWindow = MainFrame.GetParentWindow();
 	}
 
+	UCastImportUI* ImportUISession = NewObject<UCastImportUI>(GetTransientPackage());
+	ImportUISession->LoadConfig();
+
 	const float ImportWindowWidth = 450.0f;
 	const float ImportWindowHeight = 750.0f;
 	FVector2D ImportWindowSize = FVector2D(ImportWindowWidth, ImportWindowHeight);
@@ -43,11 +46,10 @@ bool FSlateCastImportUIHandler::GetImportOptions(FCastImportOptions& OutOptions,
 		.ClientSize(ImportWindowSize)
 		.ScreenPosition(WindowPosition);
 
-	UCastImportUI* ImportUI = NewObject<UCastImportUI>();
 	TSharedPtr<SCastOptionWindow> OptionsWidget;
 	Window->SetContent(
 		SAssignNew(OptionsWidget, SCastOptionWindow)
-		.ImportUI(ImportUI)
+		.ImportUI(ImportUISession)
 		.WidgetWindow(Window)
 		.FullPath(FText::FromString(FullPath))
 		.MaxWindowHeight(ImportWindowHeight)
@@ -57,21 +59,24 @@ bool FSlateCastImportUIHandler::GetImportOptions(FCastImportOptions& OutOptions,
 
 	if (OptionsWidget->ShouldImport())
 	{
-		OutOptions.PhysicsAsset = ImportUI->PhysicsAsset;
-		OutOptions.Skeleton = ImportUI->Skeleton;
-		OutOptions.bImportMaterial = ImportUI->bImportMaterial;
-		OutOptions.TexturePathType = ImportUI->TexturePathType;
-		OutOptions.GlobalMaterialPath = ImportUI->GlobalMaterialPath;
-		OutOptions.TextureFormat = ImportUI->TextureFormat;
-		OutOptions.bImportAsSkeletal = ImportUI->bImportAsSkeletal;
-		OutOptions.bImportMesh = ImportUI->bImportMesh;
-		OutOptions.bImportAnimations = ImportUI->bImportAnimations;
-		OutOptions.bConvertRefPosition = ImportUI->bConvertRefPosition;
-		OutOptions.bConvertRefAnim = ImportUI->bConvertRefAnim;
-		OutOptions.bReverseFace = ImportUI->bReverseFace;
-		OutOptions.bImportAnimationNotify = ImportUI->bImportAnimationNotify;
-		OutOptions.bDeleteRootNodeAnim = ImportUI->bDeleteRootNodeAnim;
-		OutOptions.MaterialType = ImportUI->MaterialType;
+		OutOptions.bImportMesh = ImportUISession->bImportMesh;
+		OutOptions.bImportAsSkeletal = ImportUISession->bImportAsSkeletal;
+		OutOptions.Skeleton = ImportUISession->Skeleton;
+		OutOptions.bReverseFace = ImportUISession->bReverseFace;
+		OutOptions.bPhysicsAsset = ImportUISession->bPhysicsAsset;
+		OutOptions.PhysicsAsset = ImportUISession->PhysicsAsset;
+		OutOptions.bImportAnimations = ImportUISession->bImportAnimations;
+		OutOptions.bImportAnimationNotify = ImportUISession->bImportAnimationNotify;
+		OutOptions.bDeleteRootNodeAnim = ImportUISession->bDeleteRootNodeAnim;
+		OutOptions.bConvertRefPosition = ImportUISession->bConvertRefPosition;
+		OutOptions.bConvertRefAnim = ImportUISession->bConvertRefAnim;
+		OutOptions.bImportMaterial = ImportUISession->bImportMaterial;
+		OutOptions.MaterialType = ImportUISession->MaterialType;
+		OutOptions.TexturePathType = ImportUISession->TexturePathType;
+		OutOptions.GlobalMaterialPath = ImportUISession->GlobalMaterialPath;
+		OutOptions.TextureFormat = ImportUISession->TextureFormat;
+
+		ImportUISession->SaveConfig();
 
 		bOutImportAll = OptionsWidget->ShouldImportAll();
 		return true;

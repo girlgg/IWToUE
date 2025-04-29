@@ -1,8 +1,7 @@
 ﻿#pragma once
+#include "Services/AssetImportManager.h"
 #include "WraithX/CoDAssetType.h"
-#include "WraithX/WraithX.h"
 #include "WraithX/WraithXViewModel.h"
-#include "AssetImporter/AssetImportManager.h"
 
 class FWraithXViewModel;
 class SProgressBar;
@@ -135,16 +134,14 @@ public:
 
 	SLATE_END_ARGS()
 
-	void Construct(const FArguments& InArgs);
-
-	~SWraithXWidget();
+	void Construct(const FArguments& InArgs, TSharedRef<FWraithXViewModel> InViewModel);
+	virtual ~SWraithXWidget() override;
 
 private:
 	TSharedRef<ITableRow> GenerateListRow(TSharedPtr<FCoDAsset> Item, const TSharedRef<STableViewBase>& OwnerTable);
 	void OnSortColumnChanged(const EColumnSortPriority::Type SortPriority, const FName& ColumnId,
 	                         const EColumnSortMode::Type NewSortMode);
 	EColumnSortMode::Type GetSortMode(const FName ColumnId) const;
-	void SortData();
 
 	// --- UI Construction Helpers ---
 
@@ -159,10 +156,9 @@ private:
 	void HandleSearchTextChanged(const FText& NewText);
 	void HandleSearchTextCommitted(const FText& NewText, ETextCommit::Type CommitType);
 	FReply HandleClearSearchClicked();
-	FReply HandleLoadGameClicked();
-	FReply HandleRefreshGameClicked();
+	FReply HandleStartDiscoveryClicked();
 	FReply HandleImportSelectedClicked();
-	FReply HandleImportAllClicked();
+	FReply HandleImportAllFilteredClicked();
 	FReply HandleSettingsClicked();
 	FReply HandleBrowseImportPathClicked();
 	void HandleImportPathCommitted(const FText& InText, ETextCommit::Type CommitType);
@@ -171,17 +167,17 @@ private:
 	void HandleOptionalParamsCommitted(const FText& InText, ETextCommit::Type CommitType);
 
 	// --- ViewModel Delegate Handlers ---
-	
+
 	void HandleListChanged();
 	void HandleAssetCountChanged(int32 TotalAssets, int32 FilteredAssets);
 	void HandleLoadingStateChanged(bool bIsLoading);
+	void HandleLoadingProgressChanged(float Progress);
 	void HandleImportPathChanged(const FString& NewPath);
 	void HandleShowNotification(const FText& Message);
 	void HandlePreviewAsset(TSharedPtr<FCoDAsset> AssetToPreview);
-	void ShowNotificationPopup(const FText& Message);
 
 	// --- UI State ---
-	
+
 	bool IsUIEnabled() const;
 	EVisibility GetLoadingIndicatorVisibility() const;
 	TOptional<float> GetLoadingProgress() const;
@@ -190,36 +186,16 @@ private:
 	FText GetOptionalParamsText() const;
 	bool CanImportSelected() const;
 	bool CanImportAll() const;
-	
-	// 数据源
-	TArray<TSharedPtr<FCoDAsset>> FilteredItems{};
 
-	// UI组件
+	// --- UI Element References ---
+
 	TSharedPtr<SSearchBox> SearchBox;
 	TSharedPtr<SListView<TSharedPtr<FCoDAsset>>> ListView;
 	TSharedPtr<STextBlock> AssetCountText;
 	TSharedPtr<SEditableTextBox> ImportPathInput;
 	TSharedPtr<SEditableTextBox> OptionalParamsInput;
 	TSharedPtr<SProgressBar> LoadingIndicator;
-
-	// 搜索处理
-	FString CurrentSearchText;
-	FThreadSafeBool bSearchRequested = false;
-
-	TSharedPtr<SHeaderRow> HeaderRow;
-	FName CurrentSortColumn;
-	EColumnSortMode::Type CurrentSortMode = EColumnSortMode::None;
-
-	int32 TotalAssetCount = 0;
-	FCriticalSection DataLock;
-
-	TSharedPtr<FWraithXViewModel> ViewModel = MakeShared<FWraithXViewModel>();
-	TSharedPtr<FAssetImportManager> AssetImportManager = MakeShared<FAssetImportManager>();
-	TUniquePtr<FWraithX> WraithX = MakeUnique<FWraithX>();
-
-	// --- UI Element References ---
-
 	TSharedPtr<SAssetInfoPanel> AssetInfoPanel;
 
-	float CurrentLoadingProgress = 0.f;
+	TSharedPtr<FWraithXViewModel> ViewModel;
 };

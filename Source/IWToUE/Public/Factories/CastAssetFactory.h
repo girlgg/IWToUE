@@ -47,18 +47,10 @@ public:
 	virtual bool DoesSupportClass(UClass* Class) override;
 	virtual FText GetDisplayName() const override;
 	virtual UClass* ResolveSupportedClass() override;
-	UObject* HandleExistingAsset(UObject* InParent, FName InName, const FString& InFilename);
-	static void HandleMaterialImport(FString&& ParentPath, const FString& InFilename, FCastImporter* CastImporter,
-	                                 FCastImportOptions* ImportOptions);
-	static UObject* ExecuteImportProcess(UObject* InParent, FName InName, EObjectFlags Flags, const FString& InFilename,
-	                                     FCastImporter* CastImporter, FCastImportOptions* ImportOptions,
-	                                     FString InCurrentFilename);
 	virtual UObject* FactoryCreateFile(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags,
 	                                   const FString& Filename, const TCHAR* Parms, FFeedbackContext* Warn,
 	                                   bool& bOutOperationCanceled) override;
 	//~ End of UFactor Interface
-
-	bool DetectImportType(const FString& InFilename);
 
 protected:
 	FText GetImportTaskText(const FText& TaskText) const;

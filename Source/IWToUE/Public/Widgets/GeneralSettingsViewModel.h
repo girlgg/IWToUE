@@ -8,7 +8,7 @@ class UWraithSettings;
 class FGeneralSettingsViewModel : public TSharedFromThis<FGeneralSettingsViewModel>
 {
 public:
-	FGeneralSettingsViewModel(UWraithSettings* InSettings);
+	FGeneralSettingsViewModel();
 
 	ECheckBoxState GetLoadModelsCheckState() const;
 	ECheckBoxState GetLoadAudioCheckState() const;
@@ -33,22 +33,17 @@ public:
 	void HandleLoadTexturesCheckStateChanged(ECheckBoxState NewState);
 	void HandleLoadMapsCheckStateChanged(ECheckBoxState NewState);
 
-	void HandleCordycepPathTextChanged(const FText& NewText);
 	void HandleCordycepPathTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo);
-	void HandleGamePathTextChanged(const FText& NewText);
 	void HandleGamePathTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo);
-
 	void HandleGameTypeSelectionChanged(TSharedPtr<EGameType> NewSelection, ESelectInfo::Type SelectInfo);
-
-	void HandleLaunchParametersTextChanged(const FText& NewText);
 	void HandleLaunchParametersTextCommitted(const FText& NewText, ETextCommit::Type CommitInfo);
 
 	FReply HandleBrowseCordycepPathClicked();
 	FReply HandleBrowseGamePathClicked();
 
 private:
+	UWraithSettings* GetSettings() const;
 	void SaveSettings();
 
 	TArray<TSharedPtr<EGameType>> GameTypeOptionsSource;
-	UWraithSettings* Settings;
 };

@@ -39,31 +39,28 @@ public:
 
 	SLATE_END_ARGS()
 
-	void Construct(const FArguments& InArgs, UWraithSettings* InSettingsModel);
+	void Construct(const FArguments& InArgs);
 
 private:
-	void RegisterTabSpawners();
-	TSharedRef<SDockTab> SpawnGeneralSettingsTab(const FSpawnTabArgs& Args);
-	TSharedRef<SDockTab> SpawnModelSettingsTab(const FSpawnTabArgs& Args);
-	TSharedRef<SDockTab> SpawnAnimationSettingsTab(const FSpawnTabArgs& Args);
-	TSharedRef<SDockTab> SpawnMaterialSettingsTab(const FSpawnTabArgs& Args);
-	TSharedRef<SDockTab> SpawnTextureSettingsTab(const FSpawnTabArgs& Args);
-	TSharedRef<SDockTab> SpawnAudioSettingsTab(const FSpawnTabArgs& Args);
-	TSharedRef<SDockTab> SpawnMapSettingsTab(const FSpawnTabArgs& Args);
+	void RegisterTabSpawners(UWraithSettingsManager* SettingsManager);
+	TSharedRef<SDockTab> SpawnGeneralSettingsTab(const FSpawnTabArgs& Args, UWraithSettingsManager* SettingsManager);
+	TSharedRef<SDockTab> SpawnModelSettingsTab(const FSpawnTabArgs& Args, UWraithSettingsManager* SettingsManager);
+	TSharedRef<SDockTab> SpawnAnimationSettingsTab(const FSpawnTabArgs& Args, UWraithSettingsManager* SettingsManager);
+	TSharedRef<SDockTab> SpawnMaterialSettingsTab(const FSpawnTabArgs& Args, UWraithSettingsManager* SettingsManager);
+	TSharedRef<SDockTab> SpawnTextureSettingsTab(const FSpawnTabArgs& Args, UWraithSettingsManager* SettingsManager);
+	TSharedRef<SDockTab> SpawnAudioSettingsTab(const FSpawnTabArgs& Args, UWraithSettingsManager* SettingsManager);
+	TSharedRef<SDockTab> SpawnMapSettingsTab(const FSpawnTabArgs& Args, UWraithSettingsManager* SettingsManager);
 
 	FReply CloseDialog();
 
 	TSharedPtr<FTabManager> TabManager;
 	TSharedPtr<FTabManager::FLayout> SettingsLayout;
 
-	TSharedPtr<FGeneralSettingsViewModel> GeneralViewModel;
-	TSharedPtr<FModelSettingsViewModel> ModelViewModel;
-	TSharedPtr<FAnimationSettingsViewModel> AnimationViewModel;
-	TSharedPtr<FMaterialSettingsViewModel> MaterialViewModel;
-	TSharedPtr<FTextureSettingsViewModel> TextureViewModel;
-	TSharedPtr<FAudioSettingsViewModel> AudioViewModel;
-	TSharedPtr<FMapSettingsViewModel> MapViewModel;
-
-	UWraithSettings* SettingsModel = nullptr;
+	// TSharedPtr<FGeneralSettingsViewModel> GeneralViewModel;
+	// TSharedPtr<FModelSettingsViewModel> ModelViewModel;
+	// TSharedPtr<FAnimationSettingsViewModel> AnimationViewModel;
+	// TSharedPtr<FMaterialSettingsViewModel> MaterialViewModel;
+	// TSharedPtr<FTextureSettingsViewModel> TextureViewModel;
+	// TSharedPtr<FAudioSettingsViewModel> AudioViewModel;
+	// TSharedPtr<FMapSettingsViewModel> MapViewModel;
 };
-

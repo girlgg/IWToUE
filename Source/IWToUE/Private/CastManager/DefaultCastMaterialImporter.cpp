@@ -152,11 +152,6 @@ UMaterialInterface* FDefaultCastMaterialImporter::CreateMaterialInstance(const F
 	}
 
 	Strategy->ApplyAdditionalParameters(MaterialInstance, MaterialInfo, bIsMetallic);
-
-	// FStaticParameterSet StaticParameters;
-	// MaterialInstance->GetStaticParameterValues(StaticParameters);
-	// MaterialInstance->UpdateStaticPermutation(StaticParameters);
-
 	MaterialInstance->PostEditChange();
 	InstancePackage->MarkPackageDirty();
 

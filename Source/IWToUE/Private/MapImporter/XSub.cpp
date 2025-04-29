@@ -6,7 +6,6 @@
 #include "Misc/FileHelper.h"
 #include "oodle2.h"
 #include "Database/CoDDatabaseService.h"
-#include "WraithX/CoDAssetDatabase.h"
 
 FXSub::FXSub(uint64 GameID, const FString& GamePath)
 {

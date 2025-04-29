@@ -42,7 +42,6 @@ void SModelSettingsPage::Construct(const FArguments& InArgs, TSharedRef<FModelSe
 						TAttribute<FText>(
 							ViewModel.Get(),
 							&FModelSettingsViewModel::GetExportDirectory),
-						FOnTextChanged(), // Not needed if only committing
 						FOnTextCommitted::CreateSP(ViewModel.Get(),
 						                           &FModelSettingsViewModel::HandleExportDirectoryTextCommitted),
 						FOnClicked::CreateSP(ViewModel.Get(),

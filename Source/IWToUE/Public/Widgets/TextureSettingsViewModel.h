@@ -7,7 +7,7 @@ class UWraithSettings;
 class FTextureSettingsViewModel : public TSharedFromThis<FTextureSettingsViewModel>
 {
 public:
-	FTextureSettingsViewModel(UWraithSettings* InSettings);
+	FTextureSettingsViewModel();
 
 	FText GetExportDirectory() const;
 	ECheckBoxState GetUseGlobalPathCheckState() const;
@@ -22,6 +22,6 @@ public:
 
 
 private:
+	UWraithSettings* GetSettings() const;
 	void SaveSettings();
-	UWraithSettings* Settings;
 };

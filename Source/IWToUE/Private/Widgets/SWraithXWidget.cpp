@@ -9,15 +9,15 @@
 #include "Widgets/SSettingsDialog.h"
 #include "WraithX/WraithXViewModel.h"
 
-void SWraithXWidget::Construct(const FArguments& InArgs)
+void SWraithXWidget::Construct(const FArguments& InArgs, TSharedRef<FWraithXViewModel> InViewModel)
 {
-	// --- Initialize ViewModel ---
-	ViewModel->Initialize(AssetImportManager);
+	ViewModel = InViewModel;
 
 	// --- Bind View to ViewModel Delegates ---
 	ViewModel->OnListChangedDelegate.BindSP(this, &SWraithXWidget::HandleListChanged);
 	ViewModel->OnAssetCountChangedDelegate.BindSP(this, &SWraithXWidget::HandleAssetCountChanged);
 	ViewModel->OnLoadingStateChangedDelegate.BindSP(this, &SWraithXWidget::HandleLoadingStateChanged);
+	ViewModel->OnLoadingProgressChangedDelegate.BindSP(this, &SWraithXWidget::HandleLoadingProgressChanged);
 	ViewModel->OnImportPathChangedDelegate.BindSP(this, &SWraithXWidget::HandleImportPathChanged);
 	ViewModel->OnShowNotificationDelegate.BindSP(this, &SWraithXWidget::HandleShowNotification);
 	ViewModel->OnPreviewAssetDelegate.BindSP(this, &SWraithXWidget::HandlePreviewAsset);
@@ -25,82 +25,66 @@ void SWraithXWidget::Construct(const FArguments& InArgs)
 	ChildSlot
 	[
 		SNew(SVerticalBox)
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(0.0f, 4.0f)
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
 		[
 			CreateTopToolbar()
 		]
-
-		+ SVerticalBox::Slot()
-		.FillHeight(0.8f)
-		.Padding(4.0f, 8.0f)
+		+ SVerticalBox::Slot().FillHeight(0.8f).Padding(4.0f, 8.0f)
 		[
 			CreateMainArea()
 		]
-
-		+ SVerticalBox::Slot()
-		.AutoHeight()
-		.Padding(4.0f, 8.0f)
+		+ SVerticalBox::Slot().AutoHeight().Padding(4.0f, 8.0f)
 		[
 			CreateBottomPanel()
 		]
-
-		+ SVerticalBox::Slot()
-		.AutoHeight()
+		+ SVerticalBox::Slot().AutoHeight()
 		[
 			CreateStatusBar()
 		]
 	];
 
+	HandleListChanged();
 	HandleAssetCountChanged(ViewModel->GetTotalAssetCount(), ViewModel->GetFilteredAssetCount());
 	HandleImportPathChanged(ViewModel->GetImportPath());
+	HandleLoadingStateChanged(ViewModel->IsBusy());
+	HandleLoadingProgressChanged(ViewModel->GetCurrentProgress());
 }
 
 SWraithXWidget::~SWraithXWidget()
 {
-	if (ViewModel.IsValid())
-	{
-		ViewModel->OnListChangedDelegate.Unbind();
-		ViewModel->OnAssetCountChangedDelegate.Unbind();
-		ViewModel->OnLoadingStateChangedDelegate.Unbind();
-		ViewModel->OnImportPathChangedDelegate.Unbind();
-		ViewModel->OnShowNotificationDelegate.Unbind();
-		ViewModel->OnPreviewAssetDelegate.Unbind();
-	}
 }
 
 TSharedRef<ITableRow> SWraithXWidget::GenerateListRow(TSharedPtr<FCoDAsset> Item,
                                                       const TSharedRef<STableViewBase>& OwnerTable)
 {
-	return SNew(STableRow<TSharedPtr<FCoDAsset>>, OwnerTable)
+	return SNew(STableRow<TSharedPtr<FCoDAsset>>, OwnerTable).Padding(FMargin(0, 2))
 		[
 			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.FillWidth(0.4f)
+			+ SHorizontalBox::Slot().FillWidth(0.4f).Padding(3, 0)
 			[
 				SNew(STextBlock).Text(FText::FromString(Item->AssetName))
 			]
-			+ SHorizontalBox::Slot()
-			.FillWidth(0.2f)
+			+ SHorizontalBox::Slot().FillWidth(0.2f).Padding(3, 0)
 			[
 				SNew(STextBlock).Text(Item->GetAssetStatusText())
 			]
-			+ SHorizontalBox::Slot()
-			.FillWidth(0.2f)
+			+ SHorizontalBox::Slot().FillWidth(0.2f).Padding(3, 0)
 			[
 				SNew(STextBlock).Text(Item->GetAssetTypeText())
 			]
-			+ SHorizontalBox::Slot()
-			.FillWidth(0.2f)
+			+ SHorizontalBox::Slot().FillWidth(0.2f).Padding(3, 0)
 			[
-				SNew(STextBlock).Text(FText::AsNumber(Item->AssetSize))
+				SNew(STextBlock)
+				.Text(Item->AssetSize >= 0
+					      ? FText::AsMemory(Item->AssetSize, EMemoryUnitStandard::SI)
+					      : FIWToUELocalizationManager::Get().GetText("Size"))
+				.Justification(ETextJustify::Right)
 			]
 		];
 }
 
-void SWraithXWidget::OnSortColumnChanged(const EColumnSortPriority::Type /*SortPriority*/, const FName& ColumnId,
-                                         const EColumnSortMode::Type /*NewSortMode*/)
+void SWraithXWidget::OnSortColumnChanged(const EColumnSortPriority::Type, const FName& ColumnId,
+                                         const EColumnSortMode::Type)
 {
 	if (ViewModel.IsValid())
 	{
@@ -110,51 +94,7 @@ void SWraithXWidget::OnSortColumnChanged(const EColumnSortPriority::Type /*SortP
 
 EColumnSortMode::Type SWraithXWidget::GetSortMode(const FName ColumnId) const
 {
-	if (ViewModel.IsValid())
-	{
-		return ViewModel->GetSortModeForColumn(ColumnId);
-	}
-	return EColumnSortMode::None;
-}
-
-void SWraithXWidget::SortData()
-{
-	if (CurrentSortColumn == FName("AssetName"))
-	{
-		FilteredItems.Sort([this](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			return CurrentSortMode == EColumnSortMode::Ascending
-				       ? A->AssetName.Compare(B->AssetName) < 0
-				       : A->AssetName.Compare(B->AssetName) > 0;
-		});
-	}
-	else if (CurrentSortColumn == FName("Status"))
-	{
-		FilteredItems.Sort([this](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			return CurrentSortMode == EColumnSortMode::Ascending
-				       ? A->GetAssetStatusText().CompareTo(B->GetAssetStatusText()) < 0
-				       : A->GetAssetStatusText().CompareTo(B->GetAssetStatusText()) > 0;
-		});
-	}
-	else if (CurrentSortColumn == FName("Type"))
-	{
-		FilteredItems.Sort([this](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			return CurrentSortMode == EColumnSortMode::Ascending
-				       ? A->GetAssetTypeText().CompareTo(B->GetAssetTypeText()) < 0
-				       : A->GetAssetTypeText().CompareTo(B->GetAssetTypeText()) > 0;
-		});
-	}
-	else if (CurrentSortColumn == FName("Size"))
-	{
-		FilteredItems.Sort([this](const TSharedPtr<FCoDAsset>& A, const TSharedPtr<FCoDAsset>& B)
-		{
-			return CurrentSortMode == EColumnSortMode::Ascending
-				       ? A->AssetSize < B->AssetSize
-				       : A->AssetSize > B->AssetSize;
-		});
-	}
+	return ViewModel.IsValid() ? ViewModel->GetSortModeForColumn(ColumnId) : EColumnSortMode::None;
 }
 
 TSharedRef<SWidget> SWraithXWidget::CreateTopToolbar()
@@ -167,56 +107,39 @@ TSharedRef<SWidget> SWraithXWidget::CreateTopToolbar()
 		.Padding(FMargin(8.0f, 4.0f))
 		[
 			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.0f)
+			+ SHorizontalBox::Slot().FillWidth(1.0f)
 			[
 				SAssignNew(SearchBox, SSearchBox)
 				.HintText(FIWToUELocalizationManager::Get().GetText("SearchBoxHint"))
 				.OnTextChanged(this, &SWraithXWidget::HandleSearchTextChanged)
 				.OnTextCommitted(this, &SWraithXWidget::HandleSearchTextCommitted)
-				.IsEnabled(TAttribute<bool>::CreateSP(this, &SWraithXWidget::IsUIEnabled))
+				.IsEnabled(TAttribute<bool>(this, &SWraithXWidget::IsUIEnabled))
 			]
-
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.Padding(4.0f, 0.0f)
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f, 0.0f)
 			[
 				SNew(SButton)
 				.ButtonStyle(&ToolbarButton)
 				.OnClicked(this, &SWraithXWidget::HandleClearSearchClicked)
-				.IsEnabled(TAttribute<bool>::CreateSP(this, &SWraithXWidget::IsUIEnabled))
+				.IsEnabled(TAttribute<bool>(this, &SWraithXWidget::IsUIEnabled))
 				.ToolTipText(FIWToUELocalizationManager::Get().GetText("ClearBoxHint"))
 				.ContentPadding(FMargin(2.0f))
 				[
 					SNew(SImage).Image(FAppStyle::GetBrush("Cross"))
 				]
 			]
-
-			+ SHorizontalBox::Slot()
-			.FillWidth(0.1f)
+			+ SHorizontalBox::Slot().FillWidth(0.1f)
 			[
 				SNew(SSpacer)
 			]
-
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			.HAlign(HAlign_Right)
-			.Padding(8.f, 0.f)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).HAlign(HAlign_Right).Padding(8.f, 0.f)
 			[
 				SAssignNew(AssetCountText, STextBlock)
 				.TextStyle(FAppStyle::Get(), "SmallText")
 				.Text(TAttribute<FText>::CreateSP(this, &SWraithXWidget::GetAssetCountText))
 			]
-
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 			[
-				SNew(SComboButton)
-				.ButtonStyle(&ToolbarButton)
-				.HasDownArrow(true)
-				.ButtonContent()
+				SNew(SComboButton).ButtonStyle(&ToolbarButton).HasDownArrow(true).ButtonContent()
 				[
 					SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot()
@@ -237,27 +160,22 @@ TSharedRef<SWidget> SWraithXWidget::CreateTopToolbar()
 				[
 					CreateFilterMenuContent()
 				]
-				.IsEnabled(TAttribute<bool>::Create(
-					TAttribute<bool>::FGetter::CreateSP(this, &SWraithXWidget::IsUIEnabled)))
+				.IsEnabled(TAttribute<bool>(this, &SWraithXWidget::IsUIEnabled))
 			]
 		];
 }
 
 TSharedRef<SWidget> SWraithXWidget::CreateMainArea()
 {
-	return SNew(SSplitter)
-			.Orientation(Orient_Horizontal)
-			+ SSplitter::Slot()
-			.Value(0.7f)
+	return SNew(SSplitter).Orientation(Orient_Horizontal)
+			+ SSplitter::Slot().Value(0.7f)
 			[
 				SNew(SBorder)
 				.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 				.Padding(2.0f)
 				[
 					SNew(SVerticalBox)
-					// List View
-					+ SVerticalBox::Slot()
-					.FillHeight(1.0f)
+					+ SVerticalBox::Slot().FillHeight(1.0f)
 					[
 						SAssignNew(ListView, SListView<TSharedPtr<FCoDAsset>>)
 						.ListItemsSource(&ViewModel->GetFilteredItems())
@@ -433,30 +351,18 @@ TSharedRef<SWidget> SWraithXWidget::CreateBottomPanel()
 					SNew(SUniformGridPanel)
 					.SlotPadding(FMargin(4.0f, 0.0f))
 					.MinDesiredSlotWidth(100.f)
-
 					+ SUniformGridPanel::Slot(0, 0)
 					[
 						SNew(SButton)
 						.ButtonStyle(&ActionButtonStyle)
-						.Text(FIWToUELocalizationManager::Get().GetText("LoadGame"))
-						.OnClicked(this, &SWraithXWidget::HandleLoadGameClicked)
+						.Text(FIWToUELocalizationManager::Get().GetText("StartDiscovery", "Load / Refresh Assets"))
+						.OnClicked(this, &SWraithXWidget::HandleStartDiscoveryClicked)
 						.IsEnabled(TAttribute<bool>::CreateSP(this, &SWraithXWidget::IsUIEnabled))
 						.HAlign(HAlign_Center)
 						.ToolTipText(NSLOCTEXT("WraithX", "LoadGameTooltip",
 						                       "Load asset list from the configured game source."))
 					]
 					+ SUniformGridPanel::Slot(1, 0)
-					[
-						SNew(SButton)
-						.ButtonStyle(&DefaultButtonStyle)
-						.Text(FIWToUELocalizationManager::Get().GetText("RefreshFile"))
-						.OnClicked(this, &SWraithXWidget::HandleRefreshGameClicked)
-						.IsEnabled(TAttribute<bool>::CreateSP(this, &SWraithXWidget::IsUIEnabled))
-						.HAlign(HAlign_Center)
-						.ToolTipText(NSLOCTEXT("WraithX", "RefreshGameTooltip",
-						                       "Reload and refresh the asset list from the source."))
-					]
-					+ SUniformGridPanel::Slot(2, 0)
 					[
 						SNew(SButton)
 						.ButtonStyle(&ActionButtonStyle)
@@ -484,11 +390,11 @@ TSharedRef<SWidget> SWraithXWidget::CreateBottomPanel()
 							]
 						]
 					]
-					+ SUniformGridPanel::Slot(3, 0)
+					+ SUniformGridPanel::Slot(2, 0)
 					[
 						SNew(SButton)
 						.ButtonStyle(&DefaultButtonStyle)
-						.OnClicked(this, &SWraithXWidget::HandleImportAllClicked)
+						.OnClicked(this, &SWraithXWidget::HandleImportAllFilteredClicked)
 						.IsEnabled(TAttribute<bool>::CreateSP(this, &SWraithXWidget::CanImportAll))
 						.HAlign(HAlign_Center)
 						.ToolTipText(NSLOCTEXT("WraithX", "ImportAllTooltip",
@@ -589,20 +495,11 @@ FReply SWraithXWidget::HandleClearSearchClicked()
 	return FReply::Handled();
 }
 
-FReply SWraithXWidget::HandleLoadGameClicked()
+FReply SWraithXWidget::HandleStartDiscoveryClicked()
 {
 	if (ViewModel.IsValid())
 	{
-		ViewModel->LoadGame();
-	}
-	return FReply::Handled();
-}
-
-FReply SWraithXWidget::HandleRefreshGameClicked()
-{
-	if (ViewModel.IsValid())
-	{
-		ViewModel->RefreshGame();
+		ViewModel->StartDiscovery();
 	}
 	return FReply::Handled();
 }
@@ -616,11 +513,11 @@ FReply SWraithXWidget::HandleImportSelectedClicked()
 	return FReply::Handled();
 }
 
-FReply SWraithXWidget::HandleImportAllClicked()
+FReply SWraithXWidget::HandleImportAllFilteredClicked()
 {
 	if (ViewModel.IsValid())
 	{
-		ViewModel->ImportAllAssets();
+		ViewModel->ImportAllFilteredAssets();
 	}
 	return FReply::Handled();
 }
@@ -629,7 +526,7 @@ FReply SWraithXWidget::HandleSettingsClicked()
 {
 	UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>();
 	UWraithSettings* Settings = SettingsManager->GetSettingsMutable();
-	
+
 	if (!Settings)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Failed to get WraithX Settings object!"));
@@ -646,7 +543,7 @@ FReply SWraithXWidget::HandleSettingsClicked()
 		.SizingRule(ESizingRule::FixedSize)
 		.IsTopmostWindow(true);
 
-	TSharedRef<SSettingsDialog> SettingsDialog = SNew(SSettingsDialog, Settings);
+	TSharedRef<SSettingsDialog> SettingsDialog = SNew(SSettingsDialog);
 
 	SettingsWindow->SetContent(SettingsDialog);
 
@@ -688,7 +585,7 @@ void SWraithXWidget::HandleListSelectionChanged(TSharedPtr<FCoDAsset> /*Item*/, 
 {
 	if (ViewModel.IsValid() && ListView.IsValid())
 	{
-		ViewModel->SetSelectedItems(ListView->GetSelectedItems());
+		ViewModel->UpdateSelection(ListView->GetSelectedItems());
 	}
 }
 
@@ -722,24 +619,28 @@ void SWraithXWidget::HandleListChanged()
 
 void SWraithXWidget::HandleAssetCountChanged(int32 TotalAssets, int32 FilteredAssets)
 {
-	// AssetCountText updates automatically via binding
-	// if(AssetCountText.IsValid()) AssetCountText->SetText(GetAssetCountText());
 }
 
 void SWraithXWidget::HandleLoadingStateChanged(bool bIsLoading)
 {
-	// IsEnabled/Visibility attributes handle this automatically via their bindings.
+}
+
+void SWraithXWidget::HandleLoadingProgressChanged(float Progress)
+{
 }
 
 void SWraithXWidget::HandleImportPathChanged(const FString& NewPath)
 {
-	// ImportPathInput updates automatically via binding
-	// if (ImportPathInput.IsValid()) ImportPathInput->SetText(FText::FromString(NewPath));
 }
 
 void SWraithXWidget::HandleShowNotification(const FText& Message)
 {
-	ShowNotificationPopup(Message);
+	FNotificationInfo Info(Message);
+	Info.bFireAndForget = true;
+	Info.ExpireDuration = 5.0f;
+	Info.bUseThrobber = false;
+	Info.bUseSuccessFailIcons = true;
+	FSlateNotificationManager::Get().AddNotification(Info);
 }
 
 void SWraithXWidget::HandlePreviewAsset(TSharedPtr<FCoDAsset> AssetToPreview)
@@ -759,36 +660,21 @@ void SWraithXWidget::HandlePreviewAsset(TSharedPtr<FCoDAsset> AssetToPreview)
 	PreviewWindow->SetContent(PreviewerWidget);
 }
 
-void SWraithXWidget::ShowNotificationPopup(const FText& Message)
-{
-	FNotificationInfo Info(Message);
-	Info.bFireAndForget = true;
-	Info.ExpireDuration = 5.0f;
-	Info.bUseThrobber = false;
-	Info.bUseSuccessFailIcons = true;
-
-	TSharedPtr<SNotificationItem> Notification = FSlateNotificationManager::Get().AddNotification(Info);
-	if (Notification.IsValid())
-	{
-		Notification->SetCompletionState(SNotificationItem::CS_Success); // Or CS_Fail etc.
-	}
-}
-
 bool SWraithXWidget::IsUIEnabled() const
 {
-	return ViewModel.IsValid() && !ViewModel->bIsLoading;
+	return ViewModel.IsValid() && !ViewModel->IsBusy();
 }
 
 EVisibility SWraithXWidget::GetLoadingIndicatorVisibility() const
 {
-	return (ViewModel.IsValid() && ViewModel->IsLoading()) ? EVisibility::Visible : EVisibility::Collapsed;
+	return (ViewModel.IsValid() && ViewModel->IsBusy()) ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
 TOptional<float> SWraithXWidget::GetLoadingProgress() const
 {
-	if (ViewModel.IsValid() && ViewModel->IsLoading())
+	if (ViewModel.IsValid() && ViewModel->IsBusy())
 	{
-		return TOptional<float>(ViewModel->GetLoadingProgress());
+		return TOptional<float>(ViewModel->GetCurrentProgress());
 	}
 	return TOptional<float>();
 }

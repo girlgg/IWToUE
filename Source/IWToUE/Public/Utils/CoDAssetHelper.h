@@ -122,33 +122,3 @@ namespace FCoDAssetNameHelper
 	}
 };
 
-struct FImportedAssetsCache
-{
-	TMap<uint64, TWeakObjectPtr<UTexture2D>> ImportedTextures;
-	TMap<uint64, TWeakObjectPtr<UMaterialInterface>> ImportedMaterials;
-	TMap<uint64, TWeakObjectPtr<UObject>> ImportedStaticModels;
-	TArray<UObject*> AllCreatedAssets;
-	TSet<UPackage*> PackagesToSave;
-
-	void AddCreatedAsset(UObject* Asset)
-	{
-		if (Asset)
-		{
-			AllCreatedAssets.AddUnique(Asset);
-			UPackage* Pkg = Asset->GetOutermost();
-			if (Pkg && Pkg != GetTransientPackage())
-			{
-				PackagesToSave.Add(Pkg);
-				Pkg->MarkPackageDirty();
-			}
-		}
-	}
-
-	void AddCreatedAssets(const TArray<UObject*>& Assets)
-	{
-		for (UObject* Asset : Assets)
-		{
-			AddCreatedAsset(Asset);
-		}
-	}
-};

@@ -167,7 +167,6 @@ bool FGameProcess::FindTargetProcess()
 bool FGameProcess::OpenProcessHandleAndReader()
 {
 	if (TargetProcessId == 0) return false;
-	// MemoryReader is now responsible for opening/closing the handle
 	MemoryReader = MakeShared<FWindowsMemoryReader>(TargetProcessId);
 	return MemoryReader->IsValid();
 }
@@ -259,116 +258,7 @@ void FGameProcess::HandleDiscoveryComplete()
 	}
 }
 
-bool FGameProcess::LocateGameInfo()
-{
-	switch (ProcessInfo.GameID)
-	{
-	case CoDAssets::ESupportedGames::Parasyte:
-		return LocateGameInfo::Parasyte(ProcessPath, ParasyteBaseState);
-	default:
-		break;
-	}
-	return false;
-}
-
 TSharedPtr<FXSub> FGameProcess::GetDecrypt()
 {
 	return AssetDiscoverer.IsValid() ? AssetDiscoverer->GetDecryptor() : nullptr;
-}
-
-void FGameProcess::ProcessModelAsset(FXAsset64 AssetNode)
-{
-	/*FMW6XModel Model = ReadMemory<FMW6XModel>(AssetNode.Header);
-	Model.Hash &= 0xFFFFFFFFFFFFFFF;
-
-	auto CreateModel = [&](const FString& ModelName)
-	{
-		TSharedPtr<FCoDModel> LoadedModel = MakeShared<FCoDModel>();
-		LoadedModel->AssetType = EWraithAssetType::Model;
-		LoadedModel->AssetName = ModelName;
-		LoadedModel->AssetPointer = AssetNode.Header;
-		LoadedModel->BoneCount = (Model.ParentListPtr > 0) * (Model.NumBones + Model.UnkBoneCount);
-		LoadedModel->LodCount = Model.NumLods;
-		LoadedModel->AssetStatus = AssetNode.Temp == 1
-			                           ? EWraithAssetStatus::Placeholder
-			                           : EWraithAssetStatus::Loaded;
-
-		AddAssetToCollection(LoadedModel);
-	};
-
-	if (Model.NamePtr)
-	{
-		CreateModel(ProcessAssetName(ReadFString(Model.NamePtr)));
-	}
-	else
-	{
-		FCoDAssetDatabase::Get().QueryValueAsync(Model.Hash, [=](const FString& QueryName)
-		{
-			CreateModel(QueryName.IsEmpty()
-				            ? FString::Printf(TEXT("xmodel_%llx"), Model.Hash)
-				            : QueryName);
-		});
-	}*/
-}
-
-void FGameProcess::ProcessImageAsset(FXAsset64 AssetNode)
-{
-	// ProcessGenericAsset<FMW6GfxImage, FCoDImage>(AssetNode, TEXT("ximage"),
-	//                                              [](auto& Image, auto LoadedImage)
-	//                                              {
-	// 	                                             LoadedImage->AssetType = EWraithAssetType::Image;
-	// 	                                             LoadedImage->Width = Image.Width;
-	// 	                                             LoadedImage->Height = Image.Height;
-	// 	                                             LoadedImage->Format = Image.ImageFormat;
-	// 	                                             LoadedImage->Streamed = Image.LoadedImagePtr == 0;
-	//                                              });
-}
-
-void FGameProcess::ProcessAnimAsset(FXAsset64 AssetNode)
-{
-	// ProcessGenericAsset<FMW6XAnim, FCoDAnim>(AssetNode, TEXT("xanim"),
-	//                                          [](auto& Anim, auto LoadedAnim)
-	//                                          {
-	// 	                                         LoadedAnim->AssetType = EWraithAssetType::Animation;
-	// 	                                         LoadedAnim->Framerate = Anim.Framerate;
-	// 	                                         LoadedAnim->FrameCount = Anim.FrameCount;
-	// 	                                         LoadedAnim->BoneCount = Anim.TotalBoneCount;
-	//                                          });
-}
-
-void FGameProcess::ProcessMaterialAsset(FXAsset64 AssetNode)
-{
-	// ProcessGenericAsset<FMW6Material, FCoDMaterial>(AssetNode, TEXT("xmaterial"),
-	//                                                 [](auto& Material, auto LoadedMaterial)
-	//                                                 {
-	// 	                                                LoadedMaterial->AssetType = EWraithAssetType::Material;
-	// 	                                                LoadedMaterial->ImageCount = Material.ImageCount;
-	//                                                 });
-}
-
-void FGameProcess::ProcessSoundAsset(FXAsset64 AssetNode)
-{
-	// ProcessGenericAsset<FMW6SoundAsset, FCoDSound>(AssetNode, TEXT("xmaterial"),
-	//                                                [](auto& SoundAsset, auto LoadedSound)
-	//                                                {
-	// 	                                               LoadedSound->FullName = LoadedSound->AssetName;
-	// 	                                               LoadedSound->AssetType = EWraithAssetType::Sound;
-	// 	                                               LoadedSound->AssetName = FPaths::GetBaseFilename(
-	// 		                                               LoadedSound->AssetName);
-	// 	                                               int32 DotIndex = LoadedSound->AssetName.Find(TEXT("."));
-	// 	                                               if (DotIndex != INDEX_NONE)
-	// 	                                               {
-	// 		                                               LoadedSound->AssetName = LoadedSound->AssetName.Left(
-	// 			                                               DotIndex);
-	// 	                                               }
-	// 	                                               LoadedSound->FullPath = FPaths::GetPath(LoadedSound->AssetName);
-	//
-	// 	                                               LoadedSound->FrameRate = SoundAsset.FrameRate;
-	// 	                                               LoadedSound->FrameCount = SoundAsset.FrameCount;
-	// 	                                               LoadedSound->ChannelsCount = SoundAsset.ChannelCount;
-	// 	                                               LoadedSound->AssetSize = -1;
-	// 	                                               LoadedSound->bIsFileEntry = false;
-	// 	                                               LoadedSound->Length = 1000.0f * (LoadedSound->FrameCount /
-	// 		                                               static_cast<float>(LoadedSound->FrameRate));
-	//                                                });
 }
