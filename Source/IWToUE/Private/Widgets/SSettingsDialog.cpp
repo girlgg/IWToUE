@@ -191,7 +191,7 @@ TSharedRef<SDockTab> SSettingsDialog::SpawnMapSettingsTab(const FSpawnTabArgs& A
                                                           UWraithSettingsManager* SettingsManager)
 {
 	TSharedRef<FMapSettingsViewModel> ViewModel = MakeShared<FMapSettingsViewModel>();
-	return SNew(SDockTab).Label(LOC_SETTINGS("MapTabTitle", "Map")).TabRole(ETabRole::PanelTab)
+	return SNew(SDockTab).Label(LOC_SETTINGS("MapTabTitle", "Map")).TabRole(PanelTab)
 		[
 			SNew(SMapSettingsPage, ViewModel)
 		];

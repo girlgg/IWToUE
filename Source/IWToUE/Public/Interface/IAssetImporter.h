@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+class UWraithSettings;
 struct FImportedAssetsCache;
 class FAssetImportManager;
 class IGameAssetHandler;
@@ -20,6 +21,7 @@ struct FAssetImportContext
 	FAssetImportManager* ImportManager = nullptr;
 	/** Shared cache for assets created during this import session. */
 	FImportedAssetsCache* AssetCache = nullptr;
+	const UWraithSettings* Settings = nullptr;
 
 	/** Helper to safely cast SourceAsset to its specific type. */
 	template <typename T>
@@ -84,7 +86,18 @@ struct FImportedAssetsCache
 		if (Pkg && Pkg != GetTransientPackage())
 		{
 			PackagesToSave.Add(Pkg);
-			Pkg->MarkPackageDirty();
+
+			if (IsInGameThread())
+			{
+				Pkg->MarkPackageDirty();
+			}
+			else
+			{
+				AsyncTask(ENamedThreads::GameThread, [Pkg]()
+				{
+					Pkg->MarkPackageDirty();
+				});
+			}
 		}
 	}
 
@@ -100,7 +113,17 @@ struct FImportedAssetsCache
 			if (Pkg && Pkg != GetTransientPackage())
 			{
 				PackagesToSave.Add(Pkg);
-				Pkg->MarkPackageDirty();
+				if (IsInGameThread())
+				{
+					Pkg->MarkPackageDirty();
+				}
+				else
+				{
+					AsyncTask(ENamedThreads::GameThread, [Pkg]()
+					{
+						Pkg->MarkPackageDirty();
+					});
+				}
 			}
 		}
 	}

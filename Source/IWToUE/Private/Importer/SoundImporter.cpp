@@ -88,13 +88,10 @@ bool FSoundImporter::Import(const FAssetImportContext& Context, TArray<UObject*>
 			ProgressDelegate.ExecuteIfBound(1.0f, NSLOCTEXT("SoundImporter", "Success", "Import Successful"));
 			return true;
 		}
-		else
-		{
-			UE_LOG(LogITUAssetImporter, Error, TEXT("Failed to create SoundWave asset for %s."), *SanitizedAssetName);
-			ProgressDelegate.ExecuteIfBound(
-				1.0f, NSLOCTEXT("SoundImporter", "ErrorAssetCreation", "Import Failed: Asset Creation"));
-			return false;
-		}
+		UE_LOG(LogITUAssetImporter, Error, TEXT("Failed to create SoundWave asset for %s."), *SanitizedAssetName);
+		ProgressDelegate.ExecuteIfBound(
+			1.0f, NSLOCTEXT("SoundImporter", "ErrorAssetCreation", "Import Failed: Asset Creation"));
+		return false;
 	}
 	UE_LOG(LogITUAssetImporter, Warning, TEXT("Unsupported sound data type (%d) for %s."), (int)SoundData.DataType,
 	       *SanitizedAssetName);

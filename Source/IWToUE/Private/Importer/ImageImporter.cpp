@@ -4,6 +4,7 @@
 #include "Interface/IGameAssetHandler.h"
 #include "Utils/CoDAssetHelper.h"
 #include "WraithX/CoDAssetType.h"
+#include "WraithX/WraithSettings.h"
 
 bool FImageImporter::Import(const FAssetImportContext& Context, TArray<UObject*>& OutCreatedObjects,
                             FOnAssetImportProgress ProgressDelegate)
@@ -57,14 +58,31 @@ bool FImageImporter::Import(const FAssetImportContext& Context, TArray<UObject*>
 		}
 	}
 
+	FString RelativePath;
+	if (Context.Settings->Texture.bUseGlobalTexturePath && !Context.Settings->Texture.GlobalTexturePath.IsEmpty())
+	{
+		RelativePath = Context.Settings->Texture.GlobalTexturePath;
+	}
+	else if (!Context.Settings->Texture.ExportDirectory.IsEmpty())
+	{
+		RelativePath = Context.Settings->Texture.ExportDirectory;
+	}
+	else
+	{
+		RelativePath = TEXT("Textures");
+	}
+
+	FString FinalTextureBasePath = FPaths::Combine(Context.BaseImportPath, RelativePath);
+	FPaths::NormalizeDirectoryName(FinalTextureBasePath);
+	FString TexturePackageDir = FinalTextureBasePath;
+
 	ProgressDelegate.ExecuteIfBound(0.1f, NSLOCTEXT("TextureImporter", "ReadingData", "Requesting Texture Data..."));
 
 	// --- 2. Read/Create Texture via Handler ---
-	FString TexturePackagePath = FPaths::Combine(Context.BaseImportPath, TEXT("Textures"));
 	UTexture2D* Texture = nullptr;
 	FString UsedAssetName = SanitizedAssetName;
 
-	if (!Context.GameHandler->ReadImageDataToTexture(AssetKey, Texture, UsedAssetName, TexturePackagePath))
+	if (!Context.GameHandler->ReadImageDataToTexture(AssetKey, Texture, UsedAssetName, TexturePackageDir))
 	{
 		UE_LOG(LogITUAssetImporter, Error, TEXT("Handler failed to read/create texture data for %s (Key: 0x%llX)."),
 		       *SanitizedAssetName, AssetKey);

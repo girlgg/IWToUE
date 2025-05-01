@@ -26,7 +26,7 @@ bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo,
 		}
 		else
 		{
-			OutModel.ModelName = FCoDDatabaseService::Get().GetPrintfAssetName(ModelData.Hash, TEXT("xmodel"));
+			OutModel.ModelName = FCoDDatabaseService::Get().GetPrintfAssetName(ModelData.Hash, TEXT("XModel"));
 		}
 	}
 	else
@@ -639,7 +639,6 @@ bool FModernWarfare6AssetHandler::TranslateModel(FWraithXModel& InModel, int32 L
 		}
 		else
 		{
-			// 理论上不发生
 			UE_LOG(LogTemp, Error,
 			       TEXT(
 				       "TranslateModel: Material hash %llu (Material: %s) not found in pre-processed SceneRoot.MaterialMap for LOD %d of model %s. This indicates an error in the pre-processing step."

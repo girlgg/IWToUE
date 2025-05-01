@@ -24,54 +24,539 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
                                                         FString OriginalFilePath,
                                                         TArray<UObject*>& OutCreatedObjects)
 {
-	if (!MaterialImporter)
+	FPreparedStatMeshData PreparedData = PrepareStaticMeshData_OffThread(
+		CastScene, Options, InParent, Name, MaterialImporter, OriginalFilePath);
+	if (!PreparedData.bIsValid)
 	{
-		UE_LOG(LogCast, Error, TEXT("Cannot import static mesh: Material Importer is null."));
+		UE_LOG(LogCast, Error, TEXT("Failed to prepare static mesh data for %s."), *Name.ToString());
 		return nullptr;
 	}
+
+	UStaticMesh* ResultStaticMesh;
+
+	if (IsInGameThread())
+	{
+		ResultStaticMesh = CreateAndApplyStaticMeshData_GameThread(PreparedData, Flags, OutCreatedObjects);
+	}
+	else
+	{
+		TPromise<UStaticMesh*> Promise;
+		TFuture<UStaticMesh*> Future = Promise.GetFuture();
+
+		AsyncTask(ENamedThreads::GameThread,
+		          [PreparedData = MoveTemp(PreparedData),
+			          Flags,
+			          &OutCreatedObjects,
+			          this,
+			          Promise = MoveTemp(Promise)
+		          ]() mutable
+		          {
+			          UStaticMesh* Result = CreateAndApplyStaticMeshData_GameThread(
+				          PreparedData, Flags, OutCreatedObjects);
+			          Promise.SetValue(Result);
+		          });
+
+		ResultStaticMesh = Future.Get();
+	}
+
+	return ResultStaticMesh;
+}
+
+USkeletalMesh* FDefaultCastMeshImporter::ImportSkeletalMesh(FCastScene& CastScene,
+                                                            const FCastImportOptions& Options,
+                                                            UObject* InParent,
+                                                            FName Name,
+                                                            EObjectFlags Flags,
+                                                            ICastMaterialImporter* MaterialImporter,
+                                                            FString OriginalFilePath,
+                                                            TArray<UObject*>& OutCreatedObjects)
+{
+	FPreparedSkelMeshData PreparedData = PrepareSkeletalMeshData_OffThread(
+		CastScene, Options, InParent, Name, MaterialImporter, OriginalFilePath);
+
+	if (!PreparedData.bIsValid)
+	{
+		UE_LOG(LogCast, Error, TEXT("Failed to prepare skeletal mesh data for %s."), *Name.ToString());
+		return nullptr;
+	}
+
+	USkeletalMesh* ResultSkeletalMesh = nullptr;
+
+	if (IsInGameThread())
+	{
+		ResultSkeletalMesh = CreateAndApplySkeletalMeshData_GameThread(
+			PreparedData, Flags, OutCreatedObjects);
+	}
+	else
+	{
+		TPromise<USkeletalMesh*> Promise;
+		TFuture<USkeletalMesh*> Future = Promise.GetFuture();
+
+		AsyncTask(ENamedThreads::GameThread,
+		          [PreparedData = MoveTemp(PreparedData),
+			          Flags,
+			          &OutCreatedObjects,
+			          this,
+			          Promise = MoveTemp(Promise)
+		          ]() mutable
+		          {
+			          USkeletalMesh* Result = CreateAndApplySkeletalMeshData_GameThread(
+				          PreparedData, Flags, OutCreatedObjects);
+			          Promise.SetValue(Result);
+		          });
+
+		ResultSkeletalMesh = Future.Get();
+	}
+
+	return ResultSkeletalMesh;
+}
+
+FPreparedSkelMeshData FDefaultCastMeshImporter::PrepareSkeletalMeshData_OffThread(
+	FCastScene& CastScene, const FCastImportOptions& Options, UObject* InParent, FName Name,
+	ICastMaterialImporter* MaterialImporter, const FString& OriginalFilePath)
+{
+	FPreparedSkelMeshData PreparedData;
+	PreparedData.MeshName = ObjectTools::SanitizeObjectName(Name.ToString());
+	PreparedData.ParentPackagePath = InParent->IsA<UPackage>()
+		                                 ? InParent->GetPathName()
+		                                 : FPaths::GetPath(InParent->GetPathName());
+	PreparedData.OriginalFilePath = OriginalFilePath;
+	PreparedData.OptionsPtr = &Options; // Store pointer
+	PreparedData.MaterialImporterPtr = MaterialImporter; // Store pointer
+
+	// --- Initial Checks ---
 	if (CastScene.Roots.IsEmpty())
 	{
-		UE_LOG(LogCast, Warning, TEXT("Cannot import static mesh '%s': No mesh data provided in ModelInfo."),
-		       *Name.ToString());
-		return nullptr;
+		UE_LOG(LogCast, Error, TEXT("Prepare: No CastRoot data provided."));
+		return PreparedData;
 	}
-	// Perhaps there are multiple models?
-	FCastRoot& Root = CastScene.Roots[0];
+	if (!MaterialImporter)
+	{
+		UE_LOG(LogCast, Error, TEXT("Prepare: Material Importer is null."));
+		return PreparedData;
+	}
+
+	// **Store pointer to Root - Ensure CastScene lifetime!**
+	PreparedData.RootPtr = &CastScene.Roots[0];
+	FCastRoot& Root = *PreparedData.RootPtr; // Use reference locally
+
+	// Handle default LOD info if missing (Modifies Root directly)
 	if (Root.ModelLodInfo.IsEmpty())
 	{
 		if (Root.Models.IsEmpty())
 		{
-			UE_LOG(LogCast, Error, TEXT("Cannot import static mesh '%s': No ModelLodInfo and no Models found."),
-			       *Name.ToString());
-			return nullptr;
+			UE_LOG(LogCast, Error, TEXT("Prepare: No ModelLodInfo and no Models found for '%s'."), *Name.ToString());
+			return PreparedData;
 		}
-		// Add a default LOD entry pointing to the first model if none exists
 		Root.ModelLodInfo.AddDefaulted();
 		Root.ModelLodInfo[0].ModelIndex = 0;
 		Root.ModelLodInfo[0].Distance = 0.0f;
 		UE_LOG(LogCast, Warning,
-		       TEXT("No ModelLodInfo found for '%s'. Creating default LOD0 entry pointing to Models[0]."),
+		       TEXT("Prepare: No ModelLodInfo found for '%s'. Creating default LOD0 entry pointing to Models[0]."),
 		       *Name.ToString());
 	}
-	// --- Prepare Asset Creation ---
-	UE_LOG(LogCast, Log, TEXT("Starting static mesh import for: %s with LOD support"), *Name.ToString());
 
-	FString MeshName = NoIllegalSigns(Name.ToString());
-	FString ParentPackagePath = InParent->IsA<UPackage>()
-		                            ? InParent->GetPathName()
-		                            : FPaths::GetPath(InParent->GetPathName());
-
-	// --- Create Static Mesh Asset ---
-	UStaticMesh* StaticMesh = CreateAsset<UStaticMesh>(ParentPackagePath, MeshName, true);
-	if (!StaticMesh)
+	// --- Find Base Model (Off-Thread Safe) ---
+	const FCastModelInfo* BaseModelInfoPtr = nullptr;
+	if (Root.ModelLodInfo.Num() > 0 && Root.Models.IsValidIndex(Root.ModelLodInfo[0].ModelIndex))
 	{
-		UE_LOG(LogCast, Error, TEXT("Failed to create UStaticMesh asset object: %s in package %s"), *MeshName,
-		       *ParentPackagePath);
+		PreparedData.BaseModelIndex = Root.ModelLodInfo[0].ModelIndex;
+		BaseModelInfoPtr = &Root.Models[PreparedData.BaseModelIndex];
+	}
+	else if (Root.Models.Num() > 0)
+	{
+		PreparedData.BaseModelIndex = 0;
+		BaseModelInfoPtr = &Root.Models[0];
+		UE_LOG(LogCast, Warning,
+		       TEXT(
+			       "Prepare: Could not find valid base model from ModelLodInfo[0]. Using Models[0] for skeleton definition."
+		       ));
+	}
+	if (!BaseModelInfoPtr)
+	{
+		UE_LOG(LogCast, Error, TEXT("Prepare: Cannot find a valid base FCastModelInfo for %s."), *Name.ToString());
+		return PreparedData;
+	}
+	const FCastModelInfo& BaseModelInfo = *BaseModelInfoPtr;
+
+	// --- Process Skeleton (Off-Thread Safe) ---
+	int32 TotalBoneOffset = 0;
+	PreparedData.RefBonesBinary.Reserve(BaseModelInfo.Skeletons.Num() * 30); // Pre-allocate estimate
+	for (const FCastSkeletonInfo& Skeleton : BaseModelInfo.Skeletons)
+	{
+		for (const FCastBoneInfo& Bone : Skeleton.Bones)
+		{
+			// (Populate BoneBinary as before...)
+			SkeletalMeshImportData::FBone BoneBinary;
+			BoneBinary.Name = Bone.BoneName;
+			BoneBinary.ParentIndex = Bone.ParentIndex == -1 ? INDEX_NONE : Bone.ParentIndex + TotalBoneOffset;
+			BoneBinary.NumChildren = 0;
+			SkeletalMeshImportData::FJointPos& JointMatrix = BoneBinary.BonePos;
+			JointMatrix.Transform.SetTranslation(FVector3f(Bone.LocalPosition.X, -Bone.LocalPosition.Y,
+			                                               Bone.LocalPosition.Z));
+			FQuat4f RawBoneRotator(Bone.LocalRotation.X, -Bone.LocalRotation.Y, Bone.LocalRotation.Z,
+			                       -Bone.LocalRotation.W);
+			JointMatrix.Transform.SetRotation(RawBoneRotator);
+			JointMatrix.Transform.SetScale3D(FVector3f(Bone.Scale));
+			PreparedData.RefBonesBinary.Add(BoneBinary);
+		}
+		TotalBoneOffset += Skeleton.Bones.Num();
+	}
+	// Calculate NumChildren (as before)
+	for (int32 BoneIdx = 0; BoneIdx < PreparedData.RefBonesBinary.Num(); ++BoneIdx)
+	{
+		const int32 ParentIdx = PreparedData.RefBonesBinary[BoneIdx].ParentIndex;
+		if (ParentIdx != INDEX_NONE && PreparedData.RefBonesBinary.IsValidIndex(ParentIdx))
+		{
+			PreparedData.RefBonesBinary[ParentIdx].NumChildren++;
+		}
+	}
+
+	// --- Collect LOD Info (Off-Thread Safe) ---
+	PreparedData.LodModelIndexAndDistance.Reserve(Root.ModelLodInfo.Num());
+	for (const FCastModelLod& LodInfo : Root.ModelLodInfo)
+	{
+		// Store index and distance needed for GT loop
+		PreparedData.LodModelIndexAndDistance.Emplace(LodInfo.ModelIndex, LodInfo.Distance);
+	}
+
+	if (PreparedData.LodModelIndexAndDistance.IsEmpty())
+	{
+		UE_LOG(LogCast, Error, TEXT("Prepare: No LOD information collected for %s."), *PreparedData.MeshName);
+		return PreparedData;
+	}
+
+	PreparedData.bIsValid = true;
+	return PreparedData;
+}
+
+FPreparedStatMeshData FDefaultCastMeshImporter::PrepareStaticMeshData_OffThread(FCastScene& CastScene,
+	const FCastImportOptions& Options, UObject* InParent, FName Name, ICastMaterialImporter* MaterialImporter,
+	const FString& OriginalFilePath)
+{
+	FPreparedStatMeshData PreparedData;
+
+	if (!MaterialImporter)
+	{
+		UE_LOG(LogCast, Error, TEXT("PrepareStat: Cannot import static mesh: Material Importer is null."));
+		return PreparedData;
+	}
+	if (CastScene.Roots.IsEmpty())
+	{
+		UE_LOG(LogCast, Warning, TEXT("PrepareStat: Cannot import static mesh '%s': No mesh data provided."),
+		       *Name.ToString());
+		return PreparedData;
+	}
+
+	FCastRoot& Root = CastScene.Roots[0];
+
+	if (Root.ModelLodInfo.IsEmpty())
+	{
+		if (Root.Models.IsEmpty())
+		{
+			UE_LOG(LogCast, Error, TEXT("PrepareStat: No ModelLodInfo and no Models found for '%s'."),
+			       *Name.ToString());
+			return PreparedData;
+		}
+		Root.ModelLodInfo.AddDefaulted();
+		Root.ModelLodInfo[0].ModelIndex = 0;
+		Root.ModelLodInfo[0].Distance = 0.0f;
+		UE_LOG(LogCast, Warning,
+		       TEXT("PrepareStat: No ModelLodInfo found for '%s'. Creating default LOD0 entry pointing to Models[0]."),
+		       *Name.ToString());
+	}
+
+	PreparedData.MeshName = NoIllegalSigns(Name.ToString());
+	PreparedData.ParentPackagePath = InParent->IsA<UPackage>()
+		                                 ? InParent->GetPathName()
+		                                 : FPaths::GetPath(InParent->GetPathName());
+	PreparedData.OriginalFilePath = OriginalFilePath;
+
+	PreparedData.OptionsPtr = &Options;
+	PreparedData.MaterialImporterPtr = MaterialImporter;
+
+	PreparedData.LodModelIndexAndDistance.Reserve(Root.ModelLodInfo.Num());
+	for (const FCastModelLod& LodInfo : Root.ModelLodInfo)
+	{
+		PreparedData.LodModelIndexAndDistance.Emplace(LodInfo.ModelIndex, LodInfo.Distance);
+	}
+
+	if (PreparedData.LodModelIndexAndDistance.IsEmpty())
+	{
+		UE_LOG(LogCast, Error, TEXT("PrepareStat: No valid LOD information collected for %s."), *PreparedData.MeshName);
+		return PreparedData;
+	}
+
+	PreparedData.bIsValid = true;
+	return PreparedData;
+}
+
+USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThread(FPreparedSkelMeshData& PreparedData,
+	EObjectFlags Flags, TArray<UObject*>& OutCreatedObjects)
+{
+	if (!PreparedData.bIsValid || !PreparedData.RootPtr || !PreparedData.OptionsPtr || !PreparedData.
+		MaterialImporterPtr)
+	{
+		UE_LOG(LogCast, Error, TEXT("GT_Apply: Prepared data is invalid or pointers are null for %s."),
+		       *PreparedData.MeshName);
 		return nullptr;
 	}
+
+	FCastRoot& Root = *PreparedData.RootPtr; // Dereference pointer safely now
+	const FCastImportOptions& Options = *PreparedData.OptionsPtr;
+	ICastMaterialImporter* MaterialImporter = PreparedData.MaterialImporterPtr;
+
+	// Use a local slow task for GT operations
+	FScopedSlowTask SlowTask(100, NSLOCTEXT("CastImporter", "ImportingSkeletalMeshGT",
+	                                        "Importing Skeletal Mesh (GT)..."));
+	SlowTask.MakeDialog();
+
+	// --- Create Asset (Game Thread) ---
+	SlowTask.EnterProgressFrame(5, FText::Format(
+		                            NSLOCTEXT("CastImporter", "SkM_CreatingAssetGT", "Creating Asset {0} (GT)"),
+		                            FText::FromString(PreparedData.MeshName)));
+	// Assuming CreateAsset is thread-safe or called correctly (as refactored previously)
+	USkeletalMesh* SkeletalMesh = ICastAssetImporter::CreateAsset<USkeletalMesh>(
+		PreparedData.ParentPackagePath, PreparedData.MeshName, true);
+	if (!SkeletalMesh)
+	{
+		UE_LOG(LogCast, Error, TEXT("GT_Apply: Failed to create USkeletalMesh asset object: %s"),
+		       *PreparedData.MeshName);
+		return nullptr;
+	}
+	OutCreatedObjects.Add(SkeletalMesh); // Add main asset
+
+	// --- Shared Data Across LODs (Now managed on GT) ---
+	TMap<uint32, int32> SharedMaterialMap;
+	TArray<SkeletalMeshImportData::FMaterial> FinalMaterials;
+	bool bHasVertexColors_AnyLOD = false;
+	int MaxUVLayer_AnyLOD = 0;
+	TArray<FVector> AllMeshPoints_LOD0;
+
+	// --- Setup Skeletal Mesh Asset Base (Game Thread) ---
+	SkeletalMesh->PreEditChange(nullptr);
+	SkeletalMesh->InvalidateDeriveDataCacheGUID();
+	SkeletalMesh->ResetLODInfo();
+
+	FSkeletalMeshModel* ImportedModel = SkeletalMesh->GetImportedModel();
+	check(ImportedModel);
+	ImportedModel->LODModels.Empty();
+
+	// --- Process Each LOD (Game Thread - includes Populate call now) ---
+	float ProgressPerLOD = 40.0f / FMath::Max(1, PreparedData.LodModelIndexAndDistance.Num());
+	int32 ValidLodsProcessed = 0;
+
+	for (int32 LodIdx = 0; LodIdx < PreparedData.LodModelIndexAndDistance.Num(); ++LodIdx)
+	{
+		const int32 CurrentModelIndex = PreparedData.LodModelIndexAndDistance[LodIdx].Get<0>();
+		const float CurrentDistance = PreparedData.LodModelIndexAndDistance[LodIdx].Get<1>();
+
+		SlowTask.EnterProgressFrame(ProgressPerLOD,
+		                            FText::Format(
+			                            NSLOCTEXT("CastImporter", "SkM_ProcessingLODGT", "Processing LOD {0} (GT)..."),
+			                            FText::AsNumber(ValidLodsProcessed))); // Use ValidLodsProcessed for UI index
+
+		// --- Validate Model Index and Data (Game Thread) ---
+		if (!Root.Models.IsValidIndex(CurrentModelIndex))
+		{
+			UE_LOG(LogCast, Error, TEXT("GT_Apply: Invalid ModelIndex %d specified for LOD %d in '%s'. Skipping."),
+			       CurrentModelIndex, ValidLodsProcessed, *PreparedData.MeshName);
+			continue;
+		}
+		const FCastModelInfo& CurrentLodModelInfo = Root.Models[CurrentModelIndex];
+		if (CurrentLodModelInfo.Meshes.IsEmpty())
+		{
+			UE_LOG(LogCast, Warning,
+			       TEXT("GT_Apply: ModelInfo at index %d (LOD %d) has no mesh data in '%s'. Skipping."),
+			       CurrentModelIndex, ValidLodsProcessed, *PreparedData.MeshName);
+			continue;
+		}
+
+		// --- Populate Import Data (Game Thread) ---
+		FSkeletalMeshImportData LodImportData;
+		LodImportData.RefBonesBinary = PreparedData.RefBonesBinary; // Use prepared skeleton
+
+		// **Call Populate ON GAME THREAD, passing the valid SkeletalMesh**
+		bool bPopulateSuccess = PopulateSkeletalMeshImportData(
+			Root,
+			CurrentLodModelInfo,
+			LodImportData,
+			Options,
+			MaterialImporter,
+			SkeletalMesh, // Pass the created mesh
+			SharedMaterialMap, // Use local GT map
+			FinalMaterials, // Use local GT list
+			OutCreatedObjects, // Allow adding materials etc. directly
+			bHasVertexColors_AnyLOD, // Use local GT flag
+			MaxUVLayer_AnyLOD // Use local GT max
+		);
+
+		if (!bPopulateSuccess || LodImportData.Points.IsEmpty() || LodImportData.Faces.IsEmpty())
+		{
+			UE_LOG(LogCast, Error,
+			       TEXT(
+				       "GT_Apply: PopulateSkeletalMeshImportData failed or result empty for LOD %d (Model %d) in %s. Skipping."
+			       ), ValidLodsProcessed, CurrentModelIndex, *PreparedData.MeshName);
+			continue; // Skip this LOD
+		}
+
+		// Store points from LOD0 for bounding box calculation (only if this is the first valid LOD)
+		if (ValidLodsProcessed == 0)
+		{
+			AllMeshPoints_LOD0.Reserve(LodImportData.Points.Num());
+			for (const FVector3f& Pt : LodImportData.Points) AllMeshPoints_LOD0.Add(FVector(Pt));
+		}
+
+		// --- Add LOD to Asset (Game Thread) ---
+		FSkeletalMeshLODInfo& AssetLODInfo = SkeletalMesh->AddLODInfo();
+		// AssetLODInfo.ScreenSize = CurrentDistance / 10;
+
+		FSkeletalMeshBuildSettings BuildOptions;
+		BuildOptions.bRecomputeNormals = !LodImportData.bHasNormals;
+		BuildOptions.bRecomputeTangents = !LodImportData.bHasTangents;
+		BuildOptions.bUseMikkTSpace = BuildOptions.bRecomputeTangents;
+		// ... (set other build options as before) ...
+		AssetLODInfo.BuildSettings = BuildOptions;
+
+		ImportedModel->LODModels.Add(new FSkeletalMeshLODModel());
+		FSkeletalMeshLODModel& LODModel = ImportedModel->LODModels.Last();
+		// Use Last() as index matches ValidLodsProcessed
+		LODModel.NumTexCoords = FMath::Max(1, MaxUVLayer_AnyLOD);
+
+		// Save the populated import data
+		PRAGMA_DISABLE_DEPRECATION_WARNINGS
+		SkeletalMesh->SaveLODImportedData(ValidLodsProcessed, LodImportData); // Use ValidLodsProcessed as the index
+		PRAGMA_ENABLE_DEPRECATION_WARNINGS
+
+		ValidLodsProcessed++; // Increment count of successfully processed LODs
+	}
+
+	// Check if any valid LODs were actually processed and added
+	if (ValidLodsProcessed == 0) // Or check SkeletalMesh->GetLODNum()
+	{
+		UE_LOG(LogCast, Error, TEXT("GT_Apply: No valid LODs were imported/processed for Skeletal Mesh %s. Aborting."),
+		       *PreparedData.MeshName);
+		SkeletalMesh->MarkAsGarbage(); // Clean up the asset
+		return nullptr;
+	}
+
+
+	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "SkM_SetupRefSkelGT",
+	                                         "Setting Up Reference Skeleton (GT)..."));
+
+	TArray<FSkeletalMaterial>& MeshMaterials = SkeletalMesh->GetMaterials();
+	MeshMaterials.Empty(FinalMaterials.Num());
+	for (const auto& MatData : FinalMaterials)
+	{
+		UMaterialInterface* MaterialAsset = MatData.Material.Get();
+		if (!MaterialAsset) MaterialAsset = UMaterial::GetDefaultMaterial(MD_Surface);
+		FName SlotName = FName(*MatData.MaterialImportName);
+		MeshMaterials.Add(FSkeletalMaterial(MaterialAsset, true, false, SlotName, SlotName));
+	}
+
+	{
+		FReferenceSkeletonModifier RefSkelModifier(SkeletalMesh->GetRefSkeleton(), SkeletalMesh->GetSkeleton());
+		for (const auto& BoneData : PreparedData.RefBonesBinary)
+		{
+			FName BoneFName = FName(BoneData.Name);
+			if (BoneFName.IsNone()) continue;
+			FMeshBoneInfo BoneInfo(BoneFName, BoneData.Name, BoneData.ParentIndex);
+			FTransform BoneTransform(BoneData.BonePos.Transform);
+			RefSkelModifier.Add(BoneInfo, BoneTransform);
+		}
+	}
+
+	SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "SkM_SetupAssetGT", "Setting Up Asset (GT)..."));
+	SkeletalMesh->SetHasVertexColors(bHasVertexColors_AnyLOD); // Use flag updated during Populate
+	SkeletalMesh->SetVertexColorGuid(bHasVertexColors_AnyLOD ? FGuid::NewGuid() : FGuid());
+	FBox BoundingBox(AllMeshPoints_LOD0.GetData(), AllMeshPoints_LOD0.Num());
+	SkeletalMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
+
+	// Build Mesh
+	SlowTask.EnterProgressFrame(15, NSLOCTEXT("CastImporter", "SkM_BuildingMeshLODsGT", "Building Mesh LODs (GT)..."));
+	IMeshBuilderModule& MeshBuilderModule = FModuleManager::LoadModuleChecked<IMeshBuilderModule>("MeshBuilder");
+	SkeletalMesh->Build(); // This still happens on GT
+
+	// Verify Render Data
+	SlowTask.EnterProgressFrame(2, NSLOCTEXT("CastImporter", "SkM_VerifyRenderDataGT",
+	                                         "Verifying Render Data (GT)..."));
+	FSkeletalMeshRenderData* RenderData = SkeletalMesh->GetResourceForRendering();
+	if (!RenderData || RenderData->LODRenderData.Num() != ValidLodsProcessed || !RenderData->LODRenderData.
+		IsValidIndex(0) || RenderData->LODRenderData[0].GetNumVertices() == 0)
+	{
+		UE_LOG(LogCast, Error,
+		       TEXT("GT_Apply: Failed to generate valid RenderData for %s after building. Num LODs mismatch or empty."),
+		       *PreparedData.MeshName);
+		SkeletalMesh->MarkAsGarbage();
+		return nullptr;
+	}
+
+	// Asset Import Data
+	if (!PreparedData.OriginalFilePath.IsEmpty())
+	{
+		// (Setup AssetImportData as before...)
+		UAssetImportData* ImportData = SkeletalMesh->GetAssetImportData();
+		if (!ImportData)
+		{
+			ImportData = NewObject<UAssetImportData>(SkeletalMesh, TEXT("AssetImportData"));
+			SkeletalMesh->SetAssetImportData(ImportData);
+		}
+		ImportData->Update(FPaths::ConvertRelativePathToFull(PreparedData.OriginalFilePath));
+	}
+
+	// Finalize
+	SlowTask.EnterProgressFrame(3, NSLOCTEXT("CastImporter", "SkM_FinalizingGT", "Finalizing (GT)..."));
+	SkeletalMesh->CalculateInvRefMatrices();
+
+	// Ensure Skeleton and Physics Asset (happens on GT)
+	EnsureSkeletonAndPhysicsAsset(SkeletalMesh, Options, /*InParent?*/ SkeletalMesh->GetPackage(), OutCreatedObjects);
+	// Pass Package or correct parent
+
+	SkeletalMesh->PostEditChange();
+	SkeletalMesh->MarkPackageDirty();
+
+	UE_LOG(LogCast, Log, TEXT("GT_Apply: Successfully imported Skeletal Mesh with %d LODs: %s"),
+	       SkeletalMesh->GetLODNum(), *SkeletalMesh->GetPathName());
+
+	return SkeletalMesh;
+}
+
+UStaticMesh* FDefaultCastMeshImporter::CreateAndApplyStaticMeshData_GameThread(FPreparedStatMeshData& PreparedData,
+                                                                               EObjectFlags Flags,
+                                                                               TArray<UObject*>& OutCreatedObjects)
+{
+	check(IsInGameThread());
+
+	if (!PreparedData.bIsValid || !PreparedData.RootPtr || !PreparedData.OptionsPtr || !PreparedData.
+		MaterialImporterPtr)
+	{
+		UE_LOG(LogCast, Error, TEXT("GT_ApplyStat: Prepared data is invalid or pointers are null for %s."),
+		       *PreparedData.MeshName);
+		return nullptr;
+	}
+
+	FCastRoot& Root = *PreparedData.RootPtr;
+	const FCastImportOptions& Options = *PreparedData.OptionsPtr;
+	ICastMaterialImporter* MaterialImporter = PreparedData.MaterialImporterPtr;
+
+	FScopedSlowTask SlowTask(100, NSLOCTEXT("CastImporter", "ImportingStaticMeshGT", "Importing Static Mesh (GT)..."));
+	SlowTask.MakeDialog();
+
+	// --- Create Static Mesh Asset (Game Thread) ---
+	SlowTask.EnterProgressFrame(5, FText::Format(
+		                            NSLOCTEXT("CastImporter", "StM_CreatingAssetGT", "Creating Asset {0} (GT)"),
+		                            FText::FromString(PreparedData.MeshName)));
+	UStaticMesh* StaticMesh = CreateAsset<UStaticMesh>(PreparedData.ParentPackagePath, PreparedData.MeshName, true);
+	if (!StaticMesh)
+	{
+		UE_LOG(LogCast, Error, TEXT("GT_ApplyStat: Failed to create UStaticMesh asset object: %s in package %s"),
+		       *PreparedData.MeshName, *PreparedData.ParentPackagePath);
+		return nullptr;
+	}
+	OutCreatedObjects.Add(StaticMesh);
 	StaticMesh->PreEditChange(nullptr);
 
-	// --- Shared Data Across LODs ---
+	// --- Shared Data Across LODs (Managed on Game Thread) ---
 	TMap<uint32, TPair<FName, UMaterialInterface*>> SharedMaterialMap;
 	TArray<FName> UniqueMaterialSlotNames;
 	bool bHasNormals_AnyLOD = false;
@@ -80,29 +565,38 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 
 	StaticMesh->SetNumSourceModels(0);
 
-	// --- Process Each LOD ---
-	for (int32 LodIndex = 0; LodIndex < Root.ModelLodInfo.Num(); ++LodIndex)
-	{
-		const FCastModelLod& LodInfo = Root.ModelLodInfo[LodIndex];
+	// --- Process Each LOD (Game Thread) ---
+	float ProgressPerLOD = 70.0f / FMath::Max(1, PreparedData.LodModelIndexAndDistance.Num());
+	int32 ValidLodsProcessed = 0;
 
-		if (!Root.Models.IsValidIndex(LodInfo.ModelIndex))
+	for (int32 LodBuildIndex = 0; LodBuildIndex < PreparedData.LodModelIndexAndDistance.Num(); ++LodBuildIndex)
+	{
+		const int32 CurrentModelIndex = PreparedData.LodModelIndexAndDistance[LodBuildIndex].Get<0>();
+		const float CurrentDistance = PreparedData.LodModelIndexAndDistance[LodBuildIndex].Get<1>();
+
+		SlowTask.EnterProgressFrame(ProgressPerLOD,
+		                            FText::Format(
+			                            NSLOCTEXT("CastImporter", "StM_ProcessingLODGT", "Processing LOD {0} (GT)..."),
+			                            FText::AsNumber(ValidLodsProcessed)));
+
+		// --- Validate Model Index and Data (Game Thread) ---
+		if (!Root.Models.IsValidIndex(CurrentModelIndex))
 		{
-			UE_LOG(LogCast, Error, TEXT("Invalid ModelIndex %d specified for LOD %d in '%s'. Skipping this LOD."),
-			       LodInfo.ModelIndex, LodIndex, *MeshName);
+			UE_LOG(LogCast, Error, TEXT("GT_ApplyStat: Invalid ModelIndex %d specified for LOD %d in '%s'. Skipping."),
+			       CurrentModelIndex, ValidLodsProcessed, *PreparedData.MeshName);
 			continue;
 		}
-
-		const FCastModelInfo& ModelInfo = Root.Models[LodInfo.ModelIndex];
+		const FCastModelInfo& ModelInfo = Root.Models[CurrentModelIndex];
 		if (ModelInfo.Meshes.IsEmpty())
 		{
 			UE_LOG(LogCast, Warning,
-			       TEXT("ModelInfo at index %d (for LOD %d) has no mesh data in '%s'. Skipping this LOD."),
-			       LodInfo.ModelIndex, LodIndex, *MeshName);
+			       TEXT("GT_ApplyStat: ModelInfo at index %d (LOD %d) has no mesh data in '%s'. Skipping."),
+			       CurrentModelIndex, ValidLodsProcessed, *PreparedData.MeshName);
 			continue;
 		}
 
-		UE_LOG(LogCast, Log, TEXT("Processing LOD %d using ModelIndex %d for %s"), LodIndex, LodInfo.ModelIndex,
-		       *MeshName);
+		UE_LOG(LogCast, Log, TEXT("GT_ApplyStat: Processing LOD %d using ModelIndex %d for %s"), ValidLodsProcessed,
+		       CurrentModelIndex, *PreparedData.MeshName);
 
 		FMeshDescription MeshDescription;
 		bool bPopulateSuccess = PopulateMeshDescriptionFromCastModel(
@@ -119,11 +613,14 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 		if (!bPopulateSuccess || MeshDescription.Vertices().Num() == 0 || MeshDescription.Polygons().Num() == 0)
 		{
 			UE_LOG(LogCast, Error,
-			       TEXT("Failed to populate mesh description or result was empty for LOD %d in %s. Skipping this LOD."),
-			       LodIndex, *MeshName);
+			       TEXT(
+				       "GT_ApplyStat: Failed to populate mesh description or result was empty for LOD %d in %s. Skipping this LOD."
+			       ),
+			       ValidLodsProcessed, *PreparedData.MeshName);
 			continue;
 		}
 
+		// --- Update Mesh Stats (Game Thread) ---
 		FStaticMeshAttributes Attributes(MeshDescription);
 		if (Attributes.GetVertexInstanceNormals().IsValid() && Attributes.GetVertexInstanceNormals().GetNumElements() >
 			0)
@@ -133,51 +630,57 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 			bHasTangents_AnyLOD = true;
 		MaxUVChannels_AnyLOD = FMath::Max(MaxUVChannels_AnyLOD, Attributes.GetVertexInstanceUVs().GetNumChannels());
 
+		// --- Add Source Model and Configure Build Settings (Game Thread) ---
 		FStaticMeshSourceModel& SrcModel = StaticMesh->AddSourceModel();
 
-		// --- Configure Build Settings ---
 		SrcModel.BuildSettings.bRecomputeNormals = !bHasNormals_AnyLOD;
 		SrcModel.BuildSettings.bRecomputeTangents = !bHasTangents_AnyLOD || !bHasNormals_AnyLOD;
 		SrcModel.BuildSettings.bUseMikkTSpace = SrcModel.BuildSettings.bRecomputeTangents;
-		SrcModel.BuildSettings.bGenerateLightmapUVs = (LodIndex == 0);
+		SrcModel.BuildSettings.bGenerateLightmapUVs = (ValidLodsProcessed == 0);
 		SrcModel.BuildSettings.SrcLightmapIndex = 0;
 		SrcModel.BuildSettings.DstLightmapIndex = MaxUVChannels_AnyLOD;
 		SrcModel.BuildSettings.bRemoveDegenerates = true;
 		SrcModel.BuildSettings.bUseHighPrecisionTangentBasis = false;
 		SrcModel.BuildSettings.bUseFullPrecisionUVs = false;
 
-		// Set Screen Size for this LOD
-		// Map distance to screen size (larger distance -> smaller screen size)
-		// float ScreenSize = FMath::Clamp(10 / FMath::Max(1.0f, LodInfo.Distance), 0.01f, 1.0f);
+		// Screen size setting
+		// float ScreenSize = FMath::Clamp(10 / FMath::Max(1.0f, CurrentDistance), 0.01f, 1.0f);
 		// SrcModel.ScreenSize.Default = ScreenSize;
-		// UE_LOG(LogCast, Log, TEXT("  LOD %d ScreenSize set to: %f"), LodIndex, SrcModel.ScreenSize.Default);
 
-		FMeshDescription* StaticMeshDescription = StaticMesh->CreateMeshDescription(LodIndex);
+		// --- Commit Mesh Description (Game Thread) ---
+		FMeshDescription* StaticMeshDescription = StaticMesh->CreateMeshDescription(ValidLodsProcessed);
 		if (StaticMeshDescription)
 		{
-			*StaticMeshDescription = MeshDescription;
-			StaticMesh->CommitMeshDescription(LodIndex);
-			UE_LOG(LogCast, Log, TEXT("Committed MeshDescription for LOD %d to StaticMesh %s"), LodIndex, *MeshName);
+			*StaticMeshDescription = MoveTemp(MeshDescription);
+			StaticMesh->CommitMeshDescription(ValidLodsProcessed);
+			UE_LOG(LogCast, Log, TEXT("GT_ApplyStat: Committed MeshDescription for LOD %d to StaticMesh %s"),
+			       ValidLodsProcessed, *PreparedData.MeshName);
 		}
 		else
 		{
-			UE_LOG(LogCast, Error, TEXT("Failed to get or create mesh description for LOD %d on %s"), LodIndex,
-			       *MeshName);
+			UE_LOG(LogCast, Error, TEXT("GT_ApplyStat: Failed to get or create mesh description for LOD %d on %s"),
+			       ValidLodsProcessed, *PreparedData.MeshName);
 		}
+
+		ValidLodsProcessed++;
 	}
 
+	// --- Post-LOD Processing (Game Thread) ---
 	if (StaticMesh->GetNumSourceModels() == 0)
 	{
-		UE_LOG(LogCast, Error, TEXT("No valid LODs were imported for %s. Aborting."), *MeshName);
+		UE_LOG(LogCast, Error, TEXT("GT_ApplyStat: No valid LODs were imported for %s. Aborting."),
+		       *PreparedData.MeshName);
+		StaticMesh->ClearFlags(RF_Public | RF_Standalone);
 		StaticMesh->MarkAsGarbage();
+		OutCreatedObjects.Remove(StaticMesh);
 		return nullptr;
 	}
 
-	StaticMesh->InitResources();
-	StaticMesh->SetLightingGuid();
+	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "StM_SettingMaterialsGT", "Setting Materials (GT)..."));
 
+	// --- Set Static Materials (Game Thread) ---
 	TArray<FStaticMaterial> StaticMaterials;
-
+	StaticMaterials.Reserve(UniqueMaterialSlotNames.Num());
 	for (FName SlotName : UniqueMaterialSlotNames)
 	{
 		bool bFound = false;
@@ -192,23 +695,41 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 		}
 		if (!bFound)
 		{
-			UE_LOG(LogCast, Error, TEXT("Could not find material for slot name %s during final material setup for %s."),
-			       *SlotName.ToString(), *MeshName);
+			UE_LOG(LogCast, Error,
+			       TEXT(
+				       "GT_ApplyStat: Could not find material for slot name %s during final material setup for %s. Using default."
+			       ),
+			       *SlotName.ToString(), *PreparedData.MeshName);
 			StaticMaterials.Add(FStaticMaterial(UMaterial::GetDefaultMaterial(MD_Surface), SlotName, SlotName));
 		}
 	}
 	StaticMesh->SetStaticMaterials(StaticMaterials);
 
+	// --- Set Section Info (Game Thread) ---
+	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "StM_SettingSectionsGT", "Setting Sections (GT)..."));
 	StaticMesh->GetSectionInfoMap().Clear();
 	StaticMesh->GetOriginalSectionInfoMap().Clear();
 	for (int32 LodIdx = 0; LodIdx < StaticMesh->GetNumSourceModels(); ++LodIdx)
 	{
 		const FMeshDescription* CommittedMeshDesc = StaticMesh->GetMeshDescription(LodIdx);
-		if (!CommittedMeshDesc) continue;
+		if (!CommittedMeshDesc)
+		{
+			UE_LOG(LogCast, Warning,
+			       TEXT("GT_ApplyStat: Could not retrieve committed MeshDescription for LOD %d when setting sections."),
+			       LodIdx);
+			continue;
+		}
 
 		TPolygonGroupAttributesConstRef<FName> PolygonGroupMaterialSlotNames =
 			CommittedMeshDesc->PolygonGroupAttributes().GetAttributesRef<FName>(
 				MeshAttribute::PolygonGroup::ImportedMaterialSlotName);
+
+		if (!PolygonGroupMaterialSlotNames.IsValid())
+		{
+			UE_LOG(LogCast, Warning, TEXT("GT_ApplyStat: Missing PolygonGroupMaterialSlotNames attribute for LOD %d."),
+			       LodIdx);
+			continue;
+		}
 
 		int32 SectionIndex = 0;
 		for (FPolygonGroupID PolygonGroupID : CommittedMeshDesc->PolygonGroups().GetElementIDs())
@@ -220,14 +741,17 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 			});
 			if (MaterialIndex == INDEX_NONE)
 			{
-				UE_LOG(LogCast, Error, TEXT("Failed to find MaterialIndex for SlotName '%s' in LOD %d, Section %d."),
+				UE_LOG(LogCast, Error,
+				       TEXT(
+					       "GT_ApplyStat: Failed to find MaterialIndex for SlotName '%s' in LOD %d, Section %d. Using 0."
+				       ),
 				       *SlotName.ToString(), LodIdx, SectionIndex);
-				MaterialIndex = 0; // Fallback to material 0
+				MaterialIndex = 0;
 			}
 
 			FMeshSectionInfo Info;
 			Info.MaterialIndex = MaterialIndex;
-			Info.bCastShadow = true; // Default values
+			Info.bCastShadow = true;
 			Info.bEnableCollision = true;
 			StaticMesh->GetSectionInfoMap().Set(LodIdx, SectionIndex, Info);
 			SectionIndex++;
@@ -235,351 +759,39 @@ UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
 	}
 	StaticMesh->GetOriginalSectionInfoMap().CopyFrom(StaticMesh->GetSectionInfoMap());
 
-	// --- Build and Finalize ---
-	UE_LOG(LogCast, Log, TEXT("Building StaticMesh %s..."), *MeshName);
-	StaticMesh->Build(false); // Build the mesh with all LODs
+	// --- Build and Finalize (Game Thread) ---
+	SlowTask.EnterProgressFrame(10, FText::Format(
+		                            NSLOCTEXT("CastImporter", "StM_BuildingMeshGT", "Building Mesh {0} (GT)..."),
+		                            FText::FromString(PreparedData.MeshName)));
+	StaticMesh->Build(false);
 
-	// --- Asset Import Data ---
-	if (!OriginalFilePath.IsEmpty())
+	SlowTask.EnterProgressFrame(2, NSLOCTEXT("CastImporter", "StM_InitResourcesGT", "Initializing Resources (GT)..."));
+	StaticMesh->InitResources();
+	StaticMesh->SetLightingGuid();
+
+
+	// --- Asset Import Data (Game Thread) ---
+	SlowTask.EnterProgressFrame(3, NSLOCTEXT("CastImporter", "StM_SettingImportDataGT", "Setting Import Data (GT)..."));
+	if (!PreparedData.OriginalFilePath.IsEmpty())
 	{
-		if (UAssetImportData* ImportDataPtr = StaticMesh->GetAssetImportData())
+		UAssetImportData* ImportData = StaticMesh->GetAssetImportData();
+		if (!ImportData)
 		{
-			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-			ImportDataPtr->Update(FullPath);
+			ImportData = NewObject<UAssetImportData>(StaticMesh, TEXT("AssetImportData"));
+			StaticMesh->SetAssetImportData(ImportData);
 		}
-		else
+		if (ImportData)
 		{
-			UAssetImportData* NewImportData = NewObject<UAssetImportData>(StaticMesh, TEXT("AssetImportData"));
-			StaticMesh->SetAssetImportData(NewImportData);
-			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-			NewImportData->Update(FullPath);
+			FString FullPath = FPaths::ConvertRelativePathToFull(PreparedData.OriginalFilePath);
+			ImportData->Update(FullPath);
 		}
 	}
 
+	// --- Final Touches (Game Thread) ---
 	StaticMesh->PostEditChange();
 	StaticMesh->MarkPackageDirty();
 
-	UE_LOG(LogCast, Log, TEXT("Successfully imported Static Mesh: %s"), *StaticMesh->GetPathName());
-
 	return StaticMesh;
-}
-
-USkeletalMesh* FDefaultCastMeshImporter::ImportSkeletalMesh(FCastScene& CastScene,
-                                                            const FCastImportOptions& Options,
-                                                            UObject* InParent,
-                                                            FName Name,
-                                                            EObjectFlags Flags,
-                                                            ICastMaterialImporter* MaterialImporter,
-                                                            FString OriginalFilePath,
-                                                            TArray<UObject*>& OutCreatedObjects)
-{
-	if (CastScene.Roots.IsEmpty())
-	{
-		UE_LOG(LogCast, Error, TEXT("Cannot import skeletal mesh: No CastRoot data provided."));
-		return nullptr;
-	}
-
-	if (!MaterialImporter)
-	{
-		UE_LOG(LogCast, Error, TEXT("Cannot import skeletal mesh: Material Importer is null."));
-		return nullptr;
-	}
-	// Perhaps there are multiple models?
-	FCastRoot& Root = CastScene.Roots[0];
-
-	if (Root.ModelLodInfo.IsEmpty())
-	{
-		if (Root.Models.IsEmpty())
-		{
-			UE_LOG(LogCast, Error, TEXT("Cannot import skeletal mesh '%s': No ModelLodInfo and no Models found."),
-			       *Name.ToString());
-			return nullptr;
-		}
-		Root.ModelLodInfo.AddDefaulted();
-		Root.ModelLodInfo[0].ModelIndex = 0;
-		Root.ModelLodInfo[0].Distance = 0.0f;
-		UE_LOG(LogCast, Warning,
-		       TEXT("No ModelLodInfo found for '%s'. Creating default LOD0 entry pointing to Models[0]."),
-		       *Name.ToString());
-	}
-
-	// --- Find Base Model for Skeleton/Bones ---
-	int32 BaseModelIndex = -1;
-	const FCastModelInfo* BaseModelInfoPtr = nullptr;
-	if (Root.ModelLodInfo.Num() > 0 && Root.Models.IsValidIndex(Root.ModelLodInfo[0].ModelIndex))
-	{
-		BaseModelIndex = Root.ModelLodInfo[0].ModelIndex;
-		BaseModelInfoPtr = &Root.Models[BaseModelIndex];
-	}
-	else if (Root.Models.Num() > 0) // Fallback if LOD info is bad/missing
-	{
-		BaseModelIndex = 0;
-		BaseModelInfoPtr = &Root.Models[0];
-		UE_LOG(LogCast, Warning,
-		       TEXT("Could not find valid base model from ModelLodInfo[0]. Using Models[0] for skeleton definition."));
-	}
-
-	if (!BaseModelInfoPtr)
-	{
-		UE_LOG(LogCast, Error, TEXT("Cannot find a valid base FCastModelInfo to define the skeleton for %s."),
-		       *Name.ToString());
-		return nullptr;
-	}
-	const FCastModelInfo& BaseModelInfo = *BaseModelInfoPtr;
-
-	FScopedSlowTask SlowTask(100, NSLOCTEXT("CastImporter", "ImportingSkeletalMesh", "Importing Skeletal Mesh..."));
-	SlowTask.MakeDialog();
-
-	FString MeshName = NoIllegalSigns(Name.ToString());
-	FString ParentPackagePath =
-		InParent->IsA<UPackage>() ? InParent->GetPathName() : FPaths::GetPath(InParent->GetPathName());
-
-	SlowTask.EnterProgressFrame(5, FText::Format(
-		                            NSLOCTEXT("CastImporter", "SkM_CreatingAsset", "Creating Asset {0}"),
-		                            FText::FromString(MeshName)));
-	USkeletalMesh* SkeletalMesh = CreateAsset<USkeletalMesh>(ParentPackagePath, MeshName, true);
-	if (!SkeletalMesh)
-	{
-		UE_LOG(LogCast, Error, TEXT("Failed to create USkeletalMesh asset object: %s"), *MeshName);
-		return nullptr;
-	}
-
-	// --- Shared Data Across LODs ---
-	TMap<uint32, int32> SharedMaterialMap; // Cast Material Hash -> Index in FinalMaterials array
-	TArray<SkeletalMeshImportData::FMaterial> FinalMaterials; // The single list of materials for the asset
-	TArray<SkeletalMeshImportData::FBone> RefBonesBinary; // Populated ONCE from the base model
-	bool bHasVertexColors_AnyLOD = false;
-	int MaxUVLayer_AnyLOD = 0;
-	TArray<FVector> AllMeshPoints_LOD0; // Use LOD0 points for initial bounds calculation
-
-	// --- Process Skeleton from Base Model ---
-	SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "SkM_ProcessingSkeleton", "Processing Skeleton..."));
-	int32 TotalBoneOffset = 0;
-	for (const FCastSkeletonInfo& Skeleton : BaseModelInfo.Skeletons)
-	{
-		for (const FCastBoneInfo& Bone : Skeleton.Bones)
-		{
-			SkeletalMeshImportData::FBone BoneBinary;
-			BoneBinary.Name = Bone.BoneName;
-			BoneBinary.ParentIndex = Bone.ParentIndex == -1 ? INDEX_NONE : Bone.ParentIndex + TotalBoneOffset;
-			BoneBinary.NumChildren = 0;
-
-			SkeletalMeshImportData::FJointPos& JointMatrix = BoneBinary.BonePos;
-			JointMatrix.Transform.SetTranslation(
-				FVector3f(Bone.LocalPosition.X, -Bone.LocalPosition.Y, Bone.LocalPosition.Z));
-			FQuat4f RawBoneRotator(Bone.LocalRotation.X,
-			                       -Bone.LocalRotation.Y,
-			                       Bone.LocalRotation.Z,
-			                       -Bone.LocalRotation.W);
-			JointMatrix.Transform.SetRotation(RawBoneRotator);
-			JointMatrix.Transform.SetScale3D(FVector3f(Bone.Scale));
-
-			RefBonesBinary.Add(BoneBinary);
-		}
-		TotalBoneOffset += Skeleton.Bones.Num();
-	}
-	for (int32 BoneIdx = 0; BoneIdx < RefBonesBinary.Num(); ++BoneIdx)
-	{
-		const int32 ParentIdx = RefBonesBinary[BoneIdx].ParentIndex;
-		if (ParentIdx != INDEX_NONE && RefBonesBinary.IsValidIndex(ParentIdx))
-		{
-			RefBonesBinary[ParentIdx].NumChildren++;
-		}
-	}
-
-	// --- Setup Skeletal Mesh Asset Base ---
-	SkeletalMesh->PreEditChange(nullptr);
-	SkeletalMesh->InvalidateDeriveDataCacheGUID();
-	SkeletalMesh->ResetLODInfo();
-
-	FSkeletalMeshModel* ImportedModel = SkeletalMesh->GetImportedModel();
-	check(ImportedModel);
-	ImportedModel->LODModels.Empty();
-
-	// --- Process Each LOD ---
-	float ProgressPerLOD = 40.0f / FMath::Max(1, Root.ModelLodInfo.Num());
-	for (int32 LodIndex = 0; LodIndex < Root.ModelLodInfo.Num(); ++LodIndex)
-	{
-		const FCastModelLod& LodInfo = Root.ModelLodInfo[LodIndex];
-		SlowTask.EnterProgressFrame(ProgressPerLOD,
-		                            FText::Format(
-			                            NSLOCTEXT("CastImporter", "SkM_ProcessingLOD", "Processing LOD {0}..."),
-			                            FText::AsNumber(LodIndex)));
-
-		if (!Root.Models.IsValidIndex(LodInfo.ModelIndex))
-		{
-			UE_LOG(LogCast, Error, TEXT("Invalid ModelIndex %d specified for LOD %d in '%s'. Skipping this LOD."),
-			       LodInfo.ModelIndex, LodIndex, *MeshName);
-			continue;
-		}
-
-		const FCastModelInfo& CurrentLodModelInfo = Root.Models[LodInfo.ModelIndex];
-		if (CurrentLodModelInfo.Meshes.IsEmpty())
-		{
-			UE_LOG(LogCast, Warning,
-			       TEXT("ModelInfo at index %d (for LOD %d) has no mesh data in '%s'. Skipping this LOD."),
-			       LodInfo.ModelIndex, LodIndex, *MeshName);
-			continue;
-		}
-
-		UE_LOG(LogCast, Log, TEXT("Processing LOD %d using ModelIndex %d for %s"), LodIndex, LodInfo.ModelIndex,
-		       *MeshName);
-
-		FSkeletalMeshImportData LodImportData;
-		LodImportData.RefBonesBinary = RefBonesBinary;
-
-		bool bPopulateSuccess = PopulateSkeletalMeshImportData(
-			Root,
-			CurrentLodModelInfo,
-			LodImportData,
-			Options,
-			MaterialImporter,
-			SkeletalMesh,
-			SharedMaterialMap,
-			FinalMaterials,
-			OutCreatedObjects,
-			bHasVertexColors_AnyLOD,
-			MaxUVLayer_AnyLOD);
-
-		if (!bPopulateSuccess || LodImportData.Points.IsEmpty() || LodImportData.Faces.IsEmpty())
-		{
-			UE_LOG(LogCast, Error,
-			       TEXT(
-				       "Failed to populate skeletal mesh import data or result was empty for LOD %d in %s. Skipping this LOD."
-			       ), LodIndex, *MeshName);
-			continue;
-		}
-
-		// Store points from LOD0 for bounding box calculation
-		if (LodIndex == 0)
-		{
-			AllMeshPoints_LOD0.Reserve(LodImportData.Points.Num());
-			for (const FVector3f& Pt : LodImportData.Points) AllMeshPoints_LOD0.Add(FVector(Pt)); // Convert to FVector
-		}
-
-		// Add LOD Info entry to the Skeletal Mesh Asset
-		FSkeletalMeshLODInfo& AssetLODInfo = SkeletalMesh->AddLODInfo();
-		AssetLODInfo.ScreenSize = LodInfo.Distance / 10;
-		UE_LOG(LogCast, Log, TEXT("  LOD %d ScreenSize set to: %f"), LodIndex, LodInfo.Distance / 10);
-
-		FSkeletalMeshBuildSettings BuildOptions;
-		BuildOptions.bRecomputeNormals = !LodImportData.bHasNormals;
-		BuildOptions.bRecomputeTangents = !LodImportData.bHasTangents;
-		BuildOptions.bUseMikkTSpace = BuildOptions.bRecomputeTangents;
-		BuildOptions.bComputeWeightedNormals = true;
-		BuildOptions.bRemoveDegenerates = true;
-		BuildOptions.bUseHighPrecisionTangentBasis = false;
-		BuildOptions.bUseFullPrecisionUVs = false;
-		AssetLODInfo.BuildSettings = BuildOptions;
-
-		// Add a new LODModel entry to store the import data
-		ImportedModel->LODModels.Add(new FSkeletalMeshLODModel());
-		FSkeletalMeshLODModel& LODModel = ImportedModel->LODModels[LodIndex];
-		LODModel.NumTexCoords = FMath::Max(1, MaxUVLayer_AnyLOD);
-
-		// Save the populated import data to this specific LOD index
-		PRAGMA_DISABLE_DEPRECATION_WARNINGS
-		SkeletalMesh->SaveLODImportedData(LodIndex, LodImportData);
-		PRAGMA_ENABLE_DEPRECATION_WARNINGS
-	}
-
-	// Check using LODNum which reflects added LODInfo
-	if (SkeletalMesh->GetLODNum() == 0)
-	{
-		UE_LOG(LogCast, Error, TEXT("No valid LODs were imported for Skeletal Mesh %s. Aborting."), *MeshName);
-		SkeletalMesh->MarkAsGarbage();
-		return nullptr;
-	}
-
-	// --- Finalize Skeletal Mesh Asset ---
-	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "SkM_SetupRefSkel", "Setting Up Reference Skeleton..."));
-
-	TArray<FSkeletalMaterial>& MeshMaterials = SkeletalMesh->GetMaterials();
-	MeshMaterials.Empty(FinalMaterials.Num());
-	for (const auto& MatData : FinalMaterials)
-	{
-		MeshMaterials.Add(FSkeletalMaterial(MatData.Material.Get(), true, false, FName(*MatData.MaterialImportName),
-		                                    FName(*MatData.MaterialImportName)));
-	}
-
-	// RTTI, when exiting the scope, FReferenceSkeletonModifier calls the destructor to complete the skeleton construction.
-	{
-		FReferenceSkeletonModifier RefSkelModifier(SkeletalMesh->GetRefSkeleton(), SkeletalMesh->GetSkeleton());
-		for (const auto& BoneData : RefBonesBinary)
-		{
-			FName BoneFName = FName(BoneData.Name);
-			if (BoneFName.IsNone())
-			{
-				UE_LOG(LogCast, Warning, TEXT("Skipping bone with invalid name: '%s' during RefSkeleton setup."),
-				       *BoneData.Name);
-				continue;
-			}
-			FMeshBoneInfo BoneInfo(BoneFName, BoneData.Name, BoneData.ParentIndex);
-			FTransform BoneTransform(BoneData.BonePos.Transform);
-			RefSkelModifier.Add(BoneInfo, BoneTransform);
-		}
-	}
-
-	// --- Setup Skeletal Mesh Asset ---
-	SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "SkM_SetupAsset", "Setting Up Asset..."));
-
-	// Set final properties determined during import
-	SkeletalMesh->SetHasVertexColors(bHasVertexColors_AnyLOD);
-	SkeletalMesh->SetVertexColorGuid(bHasVertexColors_AnyLOD ? FGuid::NewGuid() : FGuid());
-
-	// Calculate and set bounds using LOD0 points
-	FBox BoundingBox(AllMeshPoints_LOD0.GetData(), AllMeshPoints_LOD0.Num());
-	// Calculate from aggregated points of LOD0
-	SkeletalMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
-
-	// --- Build Mesh ---
-	SlowTask.EnterProgressFrame(15, NSLOCTEXT("CastImporter", "SkM_BuildingMeshLODs", "Building Mesh LODs..."));
-	IMeshBuilderModule& MeshBuilderModule = FModuleManager::LoadModuleChecked<IMeshBuilderModule>("MeshBuilder");
-
-	SkeletalMesh->Build();
-
-	SlowTask.EnterProgressFrame(2, NSLOCTEXT("CastImporter", "SkM_VerifyRenderData", "Verifying Render Data..."));
-	FSkeletalMeshRenderData* RenderData = SkeletalMesh->GetResourceForRendering();
-	if (!RenderData || !RenderData->LODRenderData.IsValidIndex(0) || RenderData->LODRenderData[0].GetNumVertices() == 0)
-	{
-		UE_LOG(LogCast, Error,
-		       TEXT(
-			       "Failed to generate valid RenderData for %s after building LODs. Build process might have failed internally."
-		       ), *MeshName);
-		SkeletalMesh->MarkAsGarbage();
-		return nullptr;
-	}
-
-	// Add asset import data link
-	if (!OriginalFilePath.IsEmpty())
-	{
-		if (UAssetImportData* ImportDataPtr = SkeletalMesh->GetAssetImportData())
-		{
-			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-			ImportDataPtr->Update(FullPath);
-		}
-		else
-		{
-			UAssetImportData* NewImportData = NewObject<UAssetImportData>(SkeletalMesh, TEXT("AssetImportData"));
-			SkeletalMesh->SetAssetImportData(NewImportData);
-			FString FullPath = FPaths::ConvertRelativePathToFull(OriginalFilePath);
-			NewImportData->Update(FullPath);
-		}
-	}
-
-	// Finalize
-	SlowTask.EnterProgressFrame(3, NSLOCTEXT("CastImporter", "SkM_Finalizing", "Finalizing..."));
-	SkeletalMesh->CalculateInvRefMatrices();
-
-	EnsureSkeletonAndPhysicsAsset(SkeletalMesh, Options, InParent, OutCreatedObjects);
-
-	SkeletalMesh->PostEditChange();
-	SkeletalMesh->MarkPackageDirty();
-
-	UE_LOG(LogCast, Log, TEXT("Successfully imported Skeletal Mesh with %d LODs: %s"), SkeletalMesh->GetLODNum(),
-	       *SkeletalMesh->GetPathName());
-
-	return SkeletalMesh;
 }
 
 bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
@@ -875,16 +1087,33 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& R
 		LodMaxUVLayer = FMath::Max(LodMaxUVLayer, (int32)Mesh.UVLayer);
 		// --- Material Mapping ---
 		int32 LocalMaterialIndex = INDEX_NONE;
-		if (int32* FoundLocalIndex = LodMaterialMap.Find(Mesh.MaterialHash))
+		int32 FinalMaterialIndex = INDEX_NONE;
+		FString MaterialImportName;
+		if (int32* FoundFinalIndexPtr = LodMaterialMap.Find(Mesh.MaterialHash))
 		{
-			LocalMaterialIndex = *FoundLocalIndex;
+			FinalMaterialIndex = *FoundFinalIndexPtr;
+			if (int32* FoundLocalIndexPtr = LodMaterialMap.Find(Mesh.MaterialHash))
+			{
+				LocalMaterialIndex = *FoundLocalIndexPtr;
+			}
+			if (FinalMaterials.IsValidIndex(FinalMaterialIndex))
+			{
+				MaterialImportName = FinalMaterials[FinalMaterialIndex].MaterialImportName;
+			}
+			else
+			{
+				UE_LOG(LogCast, Error,
+				       TEXT(
+					       "Populate: SharedMaterialMap points to invalid FinalMaterials index %d for hash %llu. Re-resolving."
+				       ), FinalMaterialIndex, Mesh.MaterialHash);
+				FinalMaterialIndex = INDEX_NONE;
+			}
 		}
-		else
-		{
-			int32 FinalMaterialIndex = INDEX_NONE;
-			UMaterialInterface* UnrealMaterial = nullptr;
-			FString MaterialImportName;
 
+		if (FinalMaterialIndex == INDEX_NONE)
+		{
+			UMaterialInterface* UnrealMaterial = nullptr;
+			MaterialImportName = FString::Printf(TEXT("MI_Hash_%llu"), Mesh.MaterialHash);
 			if (int32* FoundFinalIndex = SharedMaterialMap.Find(Mesh.MaterialHash))
 			{
 				FinalMaterialIndex = *FoundFinalIndex;
@@ -909,29 +1138,30 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& R
 					Root.Materials[Mesh.MaterialIndex].MaterialHash == Mesh.MaterialHash)
 				{
 					const FCastMaterialInfo& CastMaterial = Root.Materials[Mesh.MaterialIndex];
-					MaterialImportName = CastMaterial.Name;
+					FString UserFriendlyName = CastMaterial.Name.IsEmpty() ? MaterialImportName : CastMaterial.Name;
+
 					UnrealMaterial = MaterialImporter->CreateMaterialInstance(CastMaterial, Options, SkeletalMesh);
+
 					if (!UnrealMaterial)
 					{
 						UE_LOG(LogCast, Warning,
-						       TEXT("Failed to create material instance %s for mesh %s (Hash: %llu). Using default."),
-						       *MaterialImportName, *Mesh.Name, Mesh.MaterialHash);
+						       TEXT(
+							       "Populate: Failed to create material instance %s (Hash: %llu) for mesh %s. Using default."
+						       ), *UserFriendlyName, Mesh.MaterialHash, *Mesh.Name);
 						UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
 					}
 					else if (UnrealMaterial != UMaterial::GetDefaultMaterial(MD_Surface))
 					{
-						OutCreatedObjects.Add(UnrealMaterial);
+						OutCreatedObjects.AddUnique(UnrealMaterial);
 					}
 				}
 				else
 				{
 					UE_LOG(LogCast, Error,
 					       TEXT(
-						       "Invalid MaterialIndex %d or hash mismatch for MaterialHash %llu on mesh %s. Check pre-processing. Using default material."
-					       ),
-					       Mesh.MaterialIndex, Mesh.MaterialHash, *Mesh.Name);
+						       "Populate: Invalid MaterialIndex %d or hash mismatch for MaterialHash %llu on mesh %s. Using default material."
+					       ), Mesh.MaterialIndex, Mesh.MaterialHash, *Mesh.Name);
 					UnrealMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
-					MaterialImportName = FString::Printf(TEXT("DefaultMaterial_%llu"), Mesh.MaterialHash);
 				}
 
 				SkeletalMeshImportData::FMaterial NewFinalMaterialData;
@@ -941,29 +1171,40 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& R
 
 				SharedMaterialMap.Add(Mesh.MaterialHash, FinalMaterialIndex);
 			}
-
-			if (UnrealMaterial != nullptr)
+			if (LocalMaterialIndex == INDEX_NONE)
 			{
-				SkeletalMeshImportData::FMaterial NewLocalMaterialData;
-				NewLocalMaterialData.Material = UnrealMaterial;
-				NewLocalMaterialData.MaterialImportName = MaterialImportName;
-				LocalMaterialIndex = OutImportData.Materials.Add(NewLocalMaterialData);
-			}
-			else
-			{
-				UE_LOG(LogCast, Error, TEXT("Failed to resolve UnrealMaterial for hash %llu. Assigning local index 0."),
-				       Mesh.MaterialHash);
-				if (OutImportData.Materials.IsEmpty())
+				if (int32* FoundLocalIndexPtr = LodMaterialMap.Find(Mesh.MaterialHash))
 				{
-					SkeletalMeshImportData::FMaterial DefaultMatData;
-					DefaultMatData.Material = UMaterial::GetDefaultMaterial(MD_Surface);
-					DefaultMatData.MaterialImportName = TEXT("Default");
-					OutImportData.Materials.Add(DefaultMatData);
+					LocalMaterialIndex = *FoundLocalIndexPtr;
 				}
-				LocalMaterialIndex = 0;
-			}
+				else
+				{
+					// Material doesn't exist locally for this LOD yet, add it.
+					// Ensure we have the material pointer (it must exist in FinalMaterials at FinalMaterialIndex)
+					UMaterialInterface* MaterialToAdd = nullptr;
+					if (FinalMaterials.IsValidIndex(FinalMaterialIndex))
+					{
+						MaterialToAdd = FinalMaterials[FinalMaterialIndex].Material.Get();
+					}
+					if (!MaterialToAdd)
+					{
+						// Should not happen if logic above is correct
+						UE_LOG(LogCast, Error,
+						       TEXT(
+							       "Populate: Could not find material in FinalMaterials for index %d (Hash: %llu). Using default."
+						       ), FinalMaterialIndex, Mesh.MaterialHash);
+						MaterialToAdd = UMaterial::GetDefaultMaterial(MD_Surface);
+					}
 
-			LodMaterialMap.Add(Mesh.MaterialHash, LocalMaterialIndex);
+					SkeletalMeshImportData::FMaterial NewLocalMaterialData;
+					NewLocalMaterialData.Material = MaterialToAdd;
+					NewLocalMaterialData.MaterialImportName = MaterialImportName; // Use the HASH name
+					LocalMaterialIndex = OutImportData.Materials.Add(NewLocalMaterialData);
+
+					// Add mapping from hash to the index in the local list
+					LodMaterialMap.Add(Mesh.MaterialHash, LocalMaterialIndex);
+				}
+			}
 		}
 
 		// Faces and Wedges

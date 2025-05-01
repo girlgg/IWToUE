@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Services/AssetImportManager.h"
 #include "UObject/Object.h"
 #include "Widgets/CastImportUI.h"
 #include "WraithX/WraithXViewModel.h"

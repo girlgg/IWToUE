@@ -252,7 +252,6 @@ void FCastMapImporter::ImportAssetFronCord()
 		.SupportsMinimize(false);
 
 	BrowserWindow->SetContent(SNew(SWraithXWidget, ViewModel));
-
 	FSlateApplication::Get().AddWindow(BrowserWindow);
 }
 

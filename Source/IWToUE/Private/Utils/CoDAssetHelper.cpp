@@ -1,20 +1,12 @@
 ﻿#include "Utils/CoDAssetHelper.h"
 
-#include "AssetToolsModule.h"
-#include "IAssetTools.h"
-#include "SeLogChannels.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "CastManager/CastModel.h"
 #include "Interface/IMemoryReader.h"
-#include "UObject/SavePackage.h"
-#include "WraithX/CoDAssetType.h"
-#include "WraithX/GameProcess.h"
 
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include <windows.h>
 #include "DirectXTex.h"
 #include "DDS.h"
-#include "Interface/IGameAssetHandler.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 
 namespace FCoDAssetHelper
@@ -177,14 +169,144 @@ namespace FCoDAssetHelper
 	}
 }
 
+UTexture2D* FCoDAssetHelper::CreateTextureOnGameThread(FPreparedTextureData PreparedData)
+{
+	check(IsInGameThread());
+
+	if (!PreparedData.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureOnGameThread: Received invalid prepared data for %s."),
+		       *PreparedData.TextureName);
+		return nullptr;
+	}
+
+	const FString TextureName = PreparedData.TextureName;
+	const FString PackagePath = PreparedData.PackagePath;
+
+	FString PackageName = FPaths::Combine(PackagePath, TextureName);
+	UPackage* Package = CreatePackage(*PackageName);
+	if (!Package)
+	{
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureOnGameThread: Failed to create package %s for texture %s"),
+		       *PackageName, *TextureName);
+		return nullptr;
+	}
+	Package->FullyLoad();
+	Package->SetDirtyFlag(true);
+
+	UTexture2D* NewTexture = NewObject<UTexture2D>(Package, FName(*TextureName),
+	                                               RF_Public | RF_Standalone | RF_MarkAsRootSet);
+	if (!NewTexture)
+	{
+		UE_LOG(LogTemp, Error,
+		       TEXT("CreateTextureOnGameThread: Failed to create UTexture2D object for %s in package %s"), *TextureName,
+		       *PackageName);
+		return nullptr;
+	}
+
+	NewTexture->SetPlatformData(nullptr);
+	NewTexture->SRGB = PreparedData.bSRGB;
+	NewTexture->CompressionSettings = PreparedData.CompressionSettings;
+	NewTexture->Filter = TF_Default;
+	NewTexture->AddressX = TA_Wrap;
+	NewTexture->AddressY = TA_Wrap;
+	NewTexture->LODGroup = TEXTUREGROUP_World;
+	NewTexture->MipGenSettings = TMGS_FromTextureGroup;
+
+	if (NewTexture->CompressionSettings == TC_Normalmap)
+	{
+		NewTexture->LODGroup = TEXTUREGROUP_WorldNormalMap;
+		NewTexture->SRGB = false;
+	}
+	else if (NewTexture->CompressionSettings == TC_HDR || NewTexture->CompressionSettings == TC_HDR_Compressed)
+	{
+		NewTexture->SRGB = false;
+	}
+	else if (NewTexture->CompressionSettings == TC_Grayscale || NewTexture->CompressionSettings == TC_Alpha ||
+		NewTexture->CompressionSettings == TC_Displacementmap || NewTexture->CompressionSettings ==
+		TC_VectorDisplacementmap)
+	{
+		NewTexture->SRGB = false;
+	}
+
+	NewTexture->PreEditChange(nullptr);
+
+	NewTexture->Source.Init(
+		PreparedData.Width,
+		PreparedData.Height,
+		1,
+		1,
+		PreparedData.SourceDataFormat,
+		PreparedData.Mip0Data.GetData()
+	);
+
+	uint8* DestMipData = NewTexture->Source.LockMip(0);
+	SIZE_T DestMipDataSize = NewTexture->Source.CalcMipSize(0);
+	SIZE_T SourceMipDataSize = PreparedData.Mip0Data.Num();
+
+	if (!DestMipData)
+	{
+		UE_LOG(LogTemp, Error,
+		       TEXT("CreateTextureOnGameThread: Failed to lock Mip 0 after Source.Init for texture %s"),
+		       *TextureName);
+		NewTexture->Source.UnlockMip(0);
+		NewTexture->MarkAsGarbage();
+		return nullptr;
+	}
+
+	if (DestMipDataSize != SourceMipDataSize)
+	{
+		UE_LOG(LogTemp, Warning,
+		       TEXT(
+			       "CreateTextureOnGameThread: Mip 0 data size mismatch after Source.Init for %s. Expected: %llu, Source: %llu."
+		       ),
+		       *TextureName, DestMipDataSize, SourceMipDataSize);
+		SIZE_T CopySize = FMath::Min(DestMipDataSize, SourceMipDataSize);
+		if (FMemory::Memcmp(DestMipData, PreparedData.Mip0Data.GetData(), CopySize) != 0)
+		{
+			UE_LOG(LogTemp, Warning,
+			       TEXT("CreateTextureOnGameThread: Data mismatch after Init, attempting Memcpy for %s."),
+			       *TextureName);
+			FMemory::Memcpy(DestMipData, PreparedData.Mip0Data.GetData(), CopySize);
+		}
+	}
+	else
+	{
+		if (FMemory::Memcmp(DestMipData, PreparedData.Mip0Data.GetData(), SourceMipDataSize) != 0)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("CreateTextureOnGameThread: Data mismatch after Init for %s."),
+			       *TextureName);
+		}
+	}
+	NewTexture->Source.UnlockMip(0);
+
+	NewTexture->Modify();
+	NewTexture->PostEditChange();
+
+	Package->MarkPackageDirty();
+
+	FAssetRegistryModule::AssetCreated(NewTexture);
+
+	NewTexture->ClearFlags(RF_MarkAsRootSet);
+
+	return NewTexture;
+}
+
 UTexture2D* FCoDAssetHelper::CreateTextureFromDDSData(const TArray<uint8>& DDSDataArray, const FString& TextureName,
                                                       const FString& PackagePath)
 {
+	// --- Step 1: Initial Checks (Any thread) ---
 	if (DDSDataArray.IsEmpty())
 	{
-		UE_LOG(LogTemp, Error, TEXT("Input image data array is empty for %s"), *TextureName);
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Input DDS data array is empty for %s"), *TextureName);
 		return nullptr;
 	}
+	if (TextureName.IsEmpty() || PackagePath.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Invalid TextureName or PackagePath provided."));
+		return nullptr;
+	}
+	// --- Step 2: Load DDS Header and Metadata (DirectXTex, Any thread) ---
 	DirectX::ScratchImage ScratchImage;
 	DirectX::TexMetadata Metadata;
 	HRESULT hr = DirectX::LoadFromDDSMemory(DDSDataArray.GetData(), DDSDataArray.Num(),
@@ -214,12 +336,12 @@ UTexture2D* FCoDAssetHelper::CreateTextureFromDDSData(const TArray<uint8>& DDSDa
 		       *TextureName, Metadata.width, Metadata.height, Metadata.mipLevels);
 		return nullptr;
 	}
-
-	EPixelFormat TargetPixelFormat = PF_Unknown;
+	// --- Step 3: Map Formats and Settings (Any thread) ---
+	EPixelFormat UnrealPixelFormat = PF_Unknown;
 	ETextureSourceFormat UnrealSourceFormat = TSF_Invalid;
 	bool bSRGB = false;
 
-	if (!GetUnrealFormat(Metadata.format, TargetPixelFormat, UnrealSourceFormat, bSRGB))
+	if (!GetUnrealFormat(Metadata.format, UnrealPixelFormat, UnrealSourceFormat, bSRGB))
 	{
 		UE_LOG(LogTemp, Error, TEXT("Failed to map DXGI format %d to Unreal format for texture %s"),
 		       static_cast<int>(Metadata.format), *TextureName);
@@ -253,184 +375,155 @@ UTexture2D* FCoDAssetHelper::CreateTextureFromDDSData(const TArray<uint8>& DDSDa
 		       (int)UnrealSourceFormat, *TextureName);
 		return nullptr;
 	}
-
+	// --- Step 4: Decompress or Convert Image Data if Necessary (DirectXTex, Any thread) ---
 	DirectX::ScratchImage ProcessedImageData;
-	const DirectX::Image* SourceImagesPtr = ScratchImage.GetImages();
-	const DirectX::TexMetadata* SourceMetadataPtr = &Metadata;
-	size_t SourceImageCount = ScratchImage.GetImageCount();
-	bool bCleanupProcessed = false;
+	const DirectX::Image* FinalImagesPtr = ScratchImage.GetImages();
+	const DirectX::TexMetadata* FinalMetadataPtr = &Metadata;
+	size_t FinalImageCount = ScratchImage.GetImageCount();
+	bool bUsedProcessed = false;
 
 	if (DirectX::IsCompressed(Metadata.format))
 	{
-		UE_LOG(LogTemp, Verbose, TEXT("CreateTextureFromDDSData: Decompressing %s from %d to %d"), *TextureName,
-		       Metadata.format, TargetDxgiFormat);
-		hr = DirectX::Decompress(SourceImagesPtr, SourceImageCount, Metadata, TargetDxgiFormat, ProcessedImageData);
-		if (FAILED(hr))
+		if (Metadata.format == TargetDxgiFormat)
+		{
+			UE_LOG(LogTemp, Warning,
+			       TEXT(
+				       "CreateTextureFromDDSData: DDS %s is compressed but target format is the same (%d). Skipping decompression."
+			       ), *TextureName, TargetDxgiFormat);
+		}
+		else if (TargetDxgiFormat != DXGI_FORMAT_UNKNOWN)
+		{
+			hr = DirectX::Decompress(FinalImagesPtr, FinalImageCount, Metadata, TargetDxgiFormat, ProcessedImageData);
+			if (FAILED(hr))
+			{
+				UE_LOG(LogTemp, Error,
+				       TEXT(
+					       "CreateTextureFromDDSData: Failed to decompress DDS image %s from format %d to %d. HRESULT: 0x%X"
+				       ), *TextureName, Metadata.format, TargetDxgiFormat, hr);
+				return nullptr;
+			}
+			FinalImagesPtr = ProcessedImageData.GetImages();
+			FinalMetadataPtr = &ProcessedImageData.GetMetadata();
+			FinalImageCount = ProcessedImageData.GetImageCount();
+			bUsedProcessed = true;
+		}
+		else
 		{
 			UE_LOG(LogTemp, Error,
 			       TEXT(
-				       "CreateTextureFromDDSData: Failed to decompress DDS image %s from format %d to %d. HRESULT: 0x%X"
-			       ), *TextureName, Metadata.format, TargetDxgiFormat, hr);
+				       "CreateTextureFromDDSData: Cannot decompress %s, invalid target DXGI format derived from Unreal Source Format %d."
+			       ), *TextureName, (int)UnrealSourceFormat);
 			return nullptr;
 		}
-		SourceImagesPtr = ProcessedImageData.GetImages();
-		SourceMetadataPtr = &ProcessedImageData.GetMetadata();
-		SourceImageCount = ProcessedImageData.GetImageCount();
-		bCleanupProcessed = true;
 	}
 	else if (Metadata.format != TargetDxgiFormat)
 	{
-		UE_LOG(LogTemp, Verbose, TEXT("CreateTextureFromDDSData: Converting %s from %d to %d"), *TextureName,
-		       Metadata.format, TargetDxgiFormat);
-		hr = DirectX::Convert(SourceImagesPtr, SourceImageCount, Metadata, TargetDxgiFormat,
-		                      DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, ProcessedImageData);
-		if (FAILED(hr))
+		if (TargetDxgiFormat != DXGI_FORMAT_UNKNOWN)
+		{
+			UE_LOG(LogTemp, Verbose, TEXT("CreateTextureFromDDSData: Converting %s from %d to %d"), *TextureName,
+			       Metadata.format, TargetDxgiFormat);
+			hr = DirectX::Convert(FinalImagesPtr, FinalImageCount, Metadata, TargetDxgiFormat,
+			                      DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, ProcessedImageData);
+			if (FAILED(hr))
+			{
+				UE_LOG(LogTemp, Error,
+				       TEXT(
+					       "CreateTextureFromDDSData: Failed to convert DDS image %s from format %d to %d. HRESULT: 0x%X"
+				       ),
+				       *TextureName, Metadata.format, TargetDxgiFormat, hr);
+				return nullptr;
+			}
+			FinalImagesPtr = ProcessedImageData.GetImages();
+			FinalMetadataPtr = &ProcessedImageData.GetMetadata();
+			FinalImageCount = ProcessedImageData.GetImageCount();
+			bUsedProcessed = true;
+		}
+		else
 		{
 			UE_LOG(LogTemp, Error,
-			       TEXT("CreateTextureFromDDSData: Failed to convert DDS image %s from format %d to %d. HRESULT: 0x%X"),
-			       *TextureName, Metadata.format, TargetDxgiFormat, hr);
+			       TEXT(
+				       "CreateTextureFromDDSData: Cannot convert %s, invalid target DXGI format derived from Unreal Source Format %d."
+			       ), *TextureName, (int)UnrealSourceFormat);
 			return nullptr;
 		}
-		SourceImagesPtr = ProcessedImageData.GetImages();
-		SourceMetadataPtr = &ProcessedImageData.GetMetadata();
-		SourceImageCount = ProcessedImageData.GetImageCount();
-		bCleanupProcessed = true;
 	}
-	if (!SourceImagesPtr || SourceImageCount == 0)
+	if (!FinalImagesPtr || FinalImageCount == 0)
 	{
 		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: No valid image data available after processing for %s"),
 		       *TextureName);
-		if (bCleanupProcessed) ProcessedImageData.Release();
 		return nullptr;
 	}
-
-	if (!SourceImagesPtr || SourceImageCount == 0)
-	{
-		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: No valid image data available after processing for %s"),
-		       *TextureName);
-		if (bCleanupProcessed) ProcessedImageData.Release();
-		ScratchImage.Release();
-		return nullptr;
-	}
-
-	FString PackageName = FPaths::Combine(PackagePath, TextureName);
-	UPackage* Package = CreatePackage(*PackageName);
-	Package->FullyLoad();
-	Package->SetDirtyFlag(true);
-
-	UTexture2D* NewTexture = NewObject<UTexture2D>(Package, FName(*TextureName),
-	                                               RF_Public | RF_Standalone | RF_MarkAsRootSet);
-	if (!NewTexture)
-	{
-		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Failed to create UTexture2D object for %s"),
-		       *TextureName);
-		if (bCleanupProcessed) ProcessedImageData.Release();
-		return nullptr;
-	}
-
-	NewTexture->SetPlatformData(nullptr);
-	NewTexture->SRGB = bSRGB;
-	NewTexture->CompressionSettings = GetCompressionSettingsFromDXGI(Metadata.format, bSRGB);
-	NewTexture->Filter = TF_Default;
-	NewTexture->AddressX = TA_Wrap;
-	NewTexture->AddressY = TA_Wrap;
-	NewTexture->LODGroup = TEXTUREGROUP_World;
-
-	if (NewTexture->CompressionSettings == TC_Normalmap)
-	{
-		NewTexture->LODGroup = TEXTUREGROUP_WorldNormalMap;
-		NewTexture->SRGB = false;
-	}
-	else if (NewTexture->CompressionSettings == TC_HDR || NewTexture->CompressionSettings == TC_HDR_Compressed)
-	{
-		NewTexture->LODGroup = TEXTUREGROUP_World;
-		NewTexture->SRGB = false;
-	}
-	else if (NewTexture->CompressionSettings == TC_Grayscale || NewTexture->CompressionSettings == TC_Alpha ||
-		NewTexture->CompressionSettings == TC_Displacementmap)
-	{
-		NewTexture->SRGB = false;
-	}
-
-	// Initialize Source Data
-	NewTexture->PreEditChange(nullptr);
-	const DirectX::TexMetadata& FinalMetadata = *SourceMetadataPtr;
-	NewTexture->Source.Init(
-		FinalMetadata.width,
-		FinalMetadata.height,
-		FinalMetadata.depth > 1 ? FinalMetadata.depth : (FinalMetadata.arraySize > 1 ? FinalMetadata.arraySize : 1),
-		1,
-		UnrealSourceFormat
-	);
-
-	uint32 DestSliceIndex = 0;
-	const size_t ImageIndex = FinalMetadata.ComputeIndex(0, DestSliceIndex, 0);
-
-	if (ImageIndex >= SourceImageCount)
+	// --- Step 5: Extract Mip 0 Data and Prepare for Game Thread (Any thread) ---
+	const size_t MipIndex = 0;
+	const size_t SliceIndex = 0;
+	const size_t ImageIndex = FinalMetadataPtr->ComputeIndex(MipIndex, SliceIndex, 0);
+	if (ImageIndex >= FinalImageCount)
 	{
 		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Cannot find image index for Mip 0 in %s"), *TextureName);
-		NewTexture->MarkAsGarbage();
-		if (bCleanupProcessed) ProcessedImageData.Release();
-		ScratchImage.Release();
 		return nullptr;
 	}
-
-	const DirectX::Image& MipImage = SourceImagesPtr[ImageIndex];
-	uint8* DestMipData = NewTexture->Source.LockMip(0);
-	if (!DestMipData)
+	const DirectX::Image& Mip0Image = FinalImagesPtr[ImageIndex];
+	if (!Mip0Image.pixels)
 	{
-		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Failed to lock Mip 0 for texture %s"),
-		       *TextureName);
-		NewTexture->Source.UnlockMip(0);
-		NewTexture->MarkAsGarbage();
-		if (bCleanupProcessed) ProcessedImageData.Release();
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Mip 0 pixel data is null for %s"), *TextureName);
 		return nullptr;
 	}
-	SIZE_T ExpectedMipDataSize = NewTexture->Source.CalcMipSize(0);
-	SIZE_T SourceMipDataSize = MipImage.slicePitch;
-	if (MipImage.height > 1 && MipImage.rowPitch * MipImage.height != MipImage.slicePitch)
+	SIZE_T SourceMipDataSize = Mip0Image.slicePitch;
+	if (Mip0Image.height > 1 && Mip0Image.rowPitch * Mip0Image.height != Mip0Image.slicePitch)
 	{
-		SIZE_T CalculatedSize = MipImage.rowPitch * MipImage.height;
+		SIZE_T CalculatedSize = Mip0Image.rowPitch * Mip0Image.height;
 		UE_LOG(LogTemp, Warning,
 		       TEXT(
 			       "CreateTextureFromDDSData: Mip 0 slicePitch (%zu) differs from rowPitch*height (%zu) for %s. Using calculated size."
-		       ), MipImage.slicePitch, CalculatedSize, *TextureName);
+		       ),
+		       Mip0Image.slicePitch, CalculatedSize, *TextureName);
 		SourceMipDataSize = CalculatedSize;
 	}
-	if (ExpectedMipDataSize != SourceMipDataSize)
+	if (SourceMipDataSize == 0)
 	{
-		UE_LOG(LogTemp, Warning,
-		       TEXT(
-			       "CreateTextureFromDDSData: Mip 0 data size mismatch for %s. Expected: %llu, Got: %llu. Clamping copy size."
-		       ), *TextureName, ExpectedMipDataSize, SourceMipDataSize);
-		SIZE_T CopySize = FMath::Min(ExpectedMipDataSize, SourceMipDataSize);
-		FMemory::Memcpy(DestMipData, MipImage.pixels, CopySize);
+		UE_LOG(LogTemp, Error, TEXT("CreateTextureFromDDSData: Calculated Mip 0 data size is zero for %s."),
+		       *TextureName);
+		return nullptr;
+	}
+	FPreparedTextureData PreparedData;
+	PreparedData.TextureName = TextureName;
+	PreparedData.PackagePath = PackagePath;
+	PreparedData.Width = FinalMetadataPtr->width;
+	PreparedData.Height = FinalMetadataPtr->height;
+	PreparedData.FinalPixelFormat = UnrealPixelFormat;
+	PreparedData.SourceDataFormat = UnrealSourceFormat;
+	PreparedData.CompressionSettings = GetCompressionSettingsFromDXGI(Metadata.format, bSRGB);
+	PreparedData.bSRGB = bSRGB;
+
+	PreparedData.Mip0Data.SetNumUninitialized(SourceMipDataSize);
+	FMemory::Memcpy(PreparedData.Mip0Data.GetData(), Mip0Image.pixels, SourceMipDataSize);
+
+	// --- Step 6U: Dispatch to Game Thread if Necessary ---
+	UTexture2D* ResultTexture = nullptr;
+	if (IsInGameThread())
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("CreateTextureFromDDSData: Executing directly on game thread for %s."),
+		       *TextureName);
+		ResultTexture = CreateTextureOnGameThread(MoveTemp(PreparedData));
 	}
 	else
 	{
-		FMemory::Memcpy(DestMipData, MipImage.pixels, SourceMipDataSize);
+		UE_LOG(LogTemp, Verbose, TEXT("CreateTextureFromDDSData: Dispatching to game thread for %s."), *TextureName);
+		TPromise<UTexture2D*> Promise;
+		TFuture<UTexture2D*> Future = Promise.GetFuture();
+
+		AsyncTask(ENamedThreads::GameThread,
+		          [PreparedData = MoveTemp(PreparedData), Promise = MoveTemp(Promise)]() mutable
+		          {
+			          UTexture2D* Texture = CreateTextureOnGameThread(MoveTemp(PreparedData));
+			          Promise.SetValue(Texture);
+		          });
+
+		ResultTexture = Future.Get();
+		UE_LOG(LogTemp, Verbose, TEXT("CreateTextureFromDDSData: Game thread task completed for %s."), *TextureName);
 	}
-	NewTexture->Source.UnlockMip(0);
 
-
-	if (bCleanupProcessed)
-	{
-		ProcessedImageData.Release();
-	}
-	ScratchImage.Release();
-
-	NewTexture->MipGenSettings = TMGS_FromTextureGroup;
-
-	NewTexture->Modify();
-	NewTexture->PostEditChange();
-	NewTexture->UpdateResource();
-
-	Package->MarkPackageDirty();
-
-	FAssetRegistryModule::AssetCreated(NewTexture);
-
-	NewTexture->ClearFlags(RF_MarkAsRootSet);
-	return NewTexture;
+	return ResultTexture;
 }
 
 USoundWave* FCoDAssetHelper::CreateSoundWaveFromData(UObject* Outer, const FString& AssetName,
@@ -444,12 +537,18 @@ USoundWave* FCoDAssetHelper::CreateSoundWaveFromData(UObject* Outer, const FStri
 	if (!Outer)
 	{
 		Outer = GetTransientPackage();
+		if (!Outer)
+		{
+			UE_LOG(LogTemp, Error,
+			       TEXT("Cannot create SoundWave '%s': Failed to get Transient Package and Outer was null."),
+			       *AssetName);
+			return nullptr;
+		}
 	}
-	USoundWave* SoundWave = NewObject<USoundWave>(Outer, FName(*AssetName), ObjectFlags | RF_Transactional);
-	if (!SoundWave)
+	if (!IsValid(Outer))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to create USoundWave object named '%s' in Outer '%s'."), *AssetName,
-		       *Outer->GetPathName());
+		UE_LOG(LogTemp, Error, TEXT("Cannot create SoundWave '%s': Provided or determined Outer object is invalid."),
+		       *AssetName);
 		return nullptr;
 	}
 
@@ -469,58 +568,109 @@ USoundWave* FCoDAssetHelper::CreateSoundWaveFromData(UObject* Outer, const FStri
 	{
 		const uint16 FormatTag = WaveInfo.pFormatTag ? *WaveInfo.pFormatTag : 0;
 		const uint16 BitsPerSample = WaveInfo.pBitsPerSample ? *WaveInfo.pBitsPerSample : 0;
+		const uint32 Channels = WaveInfo.pChannels ? *WaveInfo.pChannels : 0;
+		const uint32 SampleRate = WaveInfo.pSamplesPerSec ? *WaveInfo.pSamplesPerSec : 0;
 		UE_LOG(LogTemp, Error,
 		       TEXT(
 			       "Unsupported WAV format for sound '%s'. FormatTag: %d, BitsPerSample: %d, Channels: %d, SampleRate: %d"
 		       ),
-		       *AssetName, FormatTag, BitsPerSample, *WaveInfo.pChannels, *WaveInfo.pSamplesPerSec);
+		       *AssetName, FormatTag, BitsPerSample, Channels, SampleRate);
 		return nullptr;
 	}
 
-	SoundWave->NumChannels = *WaveInfo.pChannels;
-	SoundWave->SetSampleRate(*WaveInfo.pSamplesPerSec);
-	SoundWave->RawPCMDataSize = WaveInfo.SampleDataSize;
-	SoundWave->SetSoundAssetCompressionType(ESoundAssetCompressionType::PCM);
+	FSharedBuffer SharedBuffer = FSharedBuffer::Clone(WaveDataPtr, WaveDataSize);
+	FName SoundFName(*AssetName);
+	uint32 NumChannels = *WaveInfo.pChannels;
+	uint32 SampleRate = *WaveInfo.pSamplesPerSec;
+	uint32 RawPCMDataSize = WaveInfo.SampleDataSize;
+	float Duration = 0.0f;
+	bool bLooping = WaveInfo.WaveSampleLoops.Num() > 0;
+	ESoundAssetCompressionType CompressionType = ESoundAssetCompressionType::PCM;
 
 	if (WaveInfo.IsFormatUncompressed())
 	{
 		// 未压缩PCM格式的持续时间计算
 		const float BytesPerSecond = static_cast<float>(*WaveInfo.pAvgBytesPerSec);
-		SoundWave->Duration = BytesPerSecond > 0 ? static_cast<float>(WaveInfo.SampleDataSize) / BytesPerSecond : 0.0f;
-		if (*WaveInfo.pFormatTag == FWaveModInfo::WAVE_INFO_FORMAT_PCM)
-		{
-			SoundWave->SetSoundAssetCompressionType(ESoundAssetCompressionType::PCM);
-		}
+		Duration = BytesPerSecond > 0 ? static_cast<float>(WaveInfo.SampleDataSize) / BytesPerSecond : 0.0f;
 	}
 	else
 	{
 		// 压缩格式的持续时间可能需要特殊处理
-		SoundWave->Duration = INDEFINITELY_LOOPING_DURATION;
+		Duration = INDEFINITELY_LOOPING_DURATION;
 		UE_LOG(LogTemp, Warning, TEXT("Compressed WAV format detected for %s - duration may not be accurate"),
 		       *AssetName);
 	}
-	if (WaveInfo.WaveSampleLoops.Num() > 0)
+
+	TPromise<USoundWave*> Promise;
+	TFuture<USoundWave*> Future = Promise.GetFuture();
+
+	AsyncTask(ENamedThreads::GameThread,
+	          [Outer, SoundFName, ObjectFlags, SharedBuffer, NumChannels, SampleRate, RawPCMDataSize, Duration, bLooping
+		          , CompressionType, &Promise]()
+	          {
+		          USoundWave* SoundWave = nullptr;
+		          FString ErrorLog;
+
+		          if (!IsValid(Outer))
+		          {
+			          ErrorLog = FString::Printf(
+				          TEXT("Outer object became invalid before game thread execution for '%s'."),
+				          *SoundFName.ToString());
+			          UE_LOG(LogTemp, Error, TEXT("%s"), *ErrorLog);
+			          Promise.SetValue(nullptr);
+			          return;
+		          }
+
+		          // --- Game Thread UObject Operations ---
+		          SoundWave = NewObject<USoundWave>(Outer, SoundFName, ObjectFlags | RF_Transactional);
+
+		          if (SoundWave)
+		          {
+			          SoundWave->NumChannels = NumChannels;
+			          SoundWave->SetSampleRate(SampleRate);
+			          SoundWave->RawPCMDataSize = RawPCMDataSize;
+			          SoundWave->Duration = Duration;
+			          SoundWave->bLooping = bLooping;
+
+			          SoundWave->RawData.UpdatePayload(SharedBuffer, SoundWave);
+
+			          SoundWave->SetSoundAssetCompressionType(CompressionType);
+			          SoundWave->SoundGroup = SOUNDGROUP_Default;
+			          SoundWave->DecompressionType = DTYPE_Setup;
+			          SoundWave->bProcedural = false;
+			          SoundWave->bStreaming = false;
+
+			          SoundWave->InvalidateCompressedData(true, true);
+
+			          SoundWave->PostEditChange();
+
+			          UE_LOG(LogTemp, Log, TEXT("Successfully created and configured SoundWave '%s' on Game Thread."),
+			                 *SoundFName.ToString());
+		          }
+		          else
+		          {
+			          ErrorLog = FString::Printf(
+				          TEXT("Failed to create USoundWave object named '%s' in Outer '%s' on Game Thread."),
+				          *SoundFName.ToString(), *Outer->GetPathName());
+			          UE_LOG(LogTemp, Error, TEXT("%s"), *ErrorLog);
+		          }
+
+		          Promise.SetValue(SoundWave);
+	          });
+
+	USoundWave* ResultSoundWave = Future.Get();
+
+	if (ResultSoundWave)
 	{
-		SoundWave->bLooping = true;
+		UE_LOG(LogTemp, Log, TEXT("CreateSoundWaveFromData returning successfully created SoundWave: %s"),
+		       *ResultSoundWave->GetName());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CreateSoundWaveFromData returning nullptr for asset: %s"), *AssetName);
 	}
 
-	FSharedBuffer SharedBuffer = FSharedBuffer::Clone(WaveDataPtr, WaveDataSize);
-	SoundWave->RawData.UpdatePayload(SharedBuffer, SoundWave);
-
-	SoundWave->SoundGroup = SOUNDGROUP_Default;
-	SoundWave->DecompressionType = DTYPE_Setup;
-	SoundWave->bProcedural = false;
-	SoundWave->bStreaming = false;
-
-	SoundWave->InvalidateCompressedData(true, true);
-
-	SoundWave->PostEditChange();
-
-	UE_LOG(LogTemp, Log,
-	       TEXT("Successfully created SoundWave: %s (SampleRate: %d, Channels: %d, Duration: %.2fs, Format: %d)"),
-	       *AssetName, *WaveInfo.pSamplesPerSec, *WaveInfo.pChannels, SoundWave->Duration, *WaveInfo.pFormatTag);
-
-	return SoundWave;
+	return ResultSoundWave;
 }
 
 TArray<uint8> FCoDAssetHelper::BuildDDSHeader(uint32 Width, uint32 Height, uint32 Depth, uint32 MipLevels,
@@ -790,4 +940,3 @@ float HalfFloatHelper::ToFloat(uint16 Value)
 
 	return V.F;
 }
-

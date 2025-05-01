@@ -7,6 +7,7 @@
 #include "Interface/IGameAssetHandler.h"
 #include "Utils/CoDAssetHelper.h"
 #include "WraithX/CoDAssetType.h"
+#include "WraithX/WraithSettings.h"
 
 FModelImporter::FModelImporter()
 {
@@ -150,8 +151,15 @@ bool FModelImporter::Import(const FAssetImportContext& Context, TArray<UObject*>
 	ProgressDelegate.ExecuteIfBound(0.7f, NSLOCTEXT("ModelImporter", "CreatingPackage", "Creating Package..."));
 
 	// --- 5. Create Package ---
-	FString PackagePath = FPaths::Combine(Context.BaseImportPath, TEXT("Models"));
-	FString FullPackageName = FPaths::Combine(PackagePath, SanitizedAssetName);
+	FString ModelRelativePath = Context.Settings->Model.ExportDirectory;
+	if (ModelRelativePath.IsEmpty())
+	{
+		ModelRelativePath = TEXT("Models");
+	}
+	FString ModelPackageDir = FPaths::Combine(Context.BaseImportPath, ModelRelativePath);
+	FString FullPackageName = FPaths::Combine(ModelPackageDir, SanitizedAssetName);
+	FPaths::NormalizeDirectoryName(FullPackageName);
+
 	UPackage* Package = CreatePackage(*FullPackageName);
 	if (!Package)
 	{
@@ -257,10 +265,84 @@ bool FModelImporter::ProcessModelDependencies(
 	}
 
 	TMap<uint64, uint32> GlobalMaterialMap;
+	FString TextureBasePath;
+	const FModelSettingsData& ModelSettings = Context.Settings->Model;
+	const FTextureSettingsData& TextureSettings = Context.Settings->Texture;
+	if (TextureSettings.bUseGlobalTexturePath && !TextureSettings.GlobalTexturePath.IsEmpty())
+	{
+		TextureBasePath = FPaths::Combine(Context.BaseImportPath, TextureSettings.GlobalTexturePath);
+		UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using GLOBAL texture path: %s"), *InOutModelData.ModelName,
+		       *TextureBasePath);
+	}
+	else
+	{
+		FString ModelRelativeDir = Context.Settings->Model.ExportDirectory;
+		if (ModelRelativeDir.IsEmpty()) ModelRelativeDir = TEXT("Models");
+		FString ModelBaseDir = FPaths::Combine(Context.BaseImportPath, ModelRelativeDir, InOutModelData.ModelName);
 
-	FString TexturePackagePath = FPaths::Combine(Context.BaseImportPath, TEXT("Models"), InOutModelData.ModelName,
-	                                             TEXT("Materials"), TEXT("Textures"));
+		switch (ModelSettings.TexturePathMode)
+		{
+		case ETextureExportPathMode::RootAndTexture:
+			TextureBasePath = FPaths::Combine(Context.BaseImportPath, TEXT("Textures"));
+			UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using RootAndTexture path mode -> %s"),
+			       *InOutModelData.ModelName, *TextureBasePath);
+			break;
+		case ETextureExportPathMode::ModelMaterialTexture:
+			TextureBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"), TEXT("Textures"));
+			UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelMaterialTexture path mode -> %s"),
+			       *InOutModelData.ModelName, *TextureBasePath);
+			break;
+		case ETextureExportPathMode::ModelOnly:
+			TextureBasePath = ModelBaseDir;
+			UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelOnly texture path mode -> %s"),
+			       *InOutModelData.ModelName, *TextureBasePath);
+			break;
+		case ETextureExportPathMode::MaterialOnly:
+			TextureBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"));
+			UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using MaterialOnly texture path mode -> %s"),
+			       *InOutModelData.ModelName, *TextureBasePath);
+			break;
+		default:
+			TextureBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"), TEXT("Textures"));
+			UE_LOG(LogITUAssetImporter, Warning,
+			       TEXT("Model %s: Unknown TexturePathMode, falling back to Model/Materials/Textures -> %s"),
+			       *InOutModelData.ModelName, *TextureBasePath);
+			break;
+		}
+	}
+	FPaths::NormalizeDirectoryName(TextureBasePath);
 
+	FString MaterialBasePath;
+	const FMaterialSettingsData& MaterialSettings = Context.Settings->Material;
+	if (MaterialSettings.bUseGlobalMaterialPath && !MaterialSettings.GlobalMaterialPath.IsEmpty()) {
+        MaterialBasePath = FPaths::Combine(Context.BaseImportPath, MaterialSettings.GlobalMaterialPath);
+        UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using GLOBAL material path: %s"), *InOutModelData.ModelName, *MaterialBasePath);
+    } else {
+        FString ModelRelativeDir = Context.Settings->Model.ExportDirectory;
+        if (ModelRelativeDir.IsEmpty()) ModelRelativeDir = TEXT("Models");
+        FString ModelBaseDir = FPaths::Combine(Context.BaseImportPath, ModelRelativeDir, InOutModelData.ModelName);
+
+         switch (ModelSettings.MaterialPathMode) {
+             case EMaterialExportPathMode::RootAndMaterial:
+                 MaterialBasePath = FPaths::Combine(Context.BaseImportPath, TEXT("Materials"));
+                 UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using RootAndMaterial path mode -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
+                 break;
+            case EMaterialExportPathMode::ModelAndMaterial:
+                MaterialBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"));
+                UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelAndMaterial path mode -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
+                break;
+            case EMaterialExportPathMode::ModelOnly:
+                 MaterialBasePath = ModelBaseDir;
+                 UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelOnly material path mode -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
+                 break;
+             default:
+                 MaterialBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"));
+                 UE_LOG(LogITUAssetImporter, Warning, TEXT("Model %s: Unknown MaterialPathMode, falling back to Model/Materials -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
+                 break;
+         }
+    }
+    FPaths::NormalizeDirectoryName(MaterialBasePath);
+	
 	for (FWraithXModelLod& Lod : InOutModelData.ModelLods)
 	{
 		for (FWraithXMaterial& WraithMaterial : Lod.Materials)
@@ -298,7 +380,7 @@ bool FModelImporter::ProcessModelDependencies(
 						}
 						else
 						{
-							Cache.ImportedTextures.Remove(WraithImage.ImagePtr); // Remove stale
+							Cache.ImportedTextures.Remove(WraithImage.ImagePtr);
 						}
 					}
 				}
@@ -308,7 +390,7 @@ bool FModelImporter::ProcessModelDependencies(
 				{
 					FString ImageName = FCoDAssetNameHelper::NoIllegalSigns(WraithImage.ImageName);
 					if (!Handler->ReadImageDataToTexture(WraithImage.ImagePtr, TextureAsset, ImageName,
-					                                     TexturePackagePath))
+					                                     TextureBasePath))
 					{
 						UE_LOG(LogITUAssetImporter, Warning,
 						       TEXT("Failed to read/create texture %s (Ptr: 0x%llX) for material %s"),
@@ -352,7 +434,7 @@ bool FModelImporter::ProcessModelDependencies(
 				FCastTextureInfo& CastTextureInfo = CastMaterialInfo.Textures.AddDefaulted_GetRef();
 				CastTextureInfo.TextureName = WraithImage.ImageName;
 				CastTextureInfo.TextureObject = WraithImage.ImageObject;
-				FString ParameterName = FString::Printf(TEXT("Tex_Semantic_0x%X"), WraithImage.SemanticHash);
+				FString ParameterName = FString::Printf(TEXT("unk_semantic_0x%X"), WraithImage.SemanticHash);
 				CastTextureInfo.TextureSlot = ParameterName;
 				CastTextureInfo.TextureType = ParameterName;
 			}
@@ -390,7 +472,8 @@ UMaterialInterface* FModelImporter::GetOrCreateMaterialInstance(const FCastMater
 	// --- Check Cache ---
 	{
 		FScopeLock Lock(&Cache.CacheMutex);
-		if (const TWeakObjectPtr<UMaterialInterface>* Found = Cache.ImportedMaterials.Find(PreparedMaterialInfo.MaterialHash))
+		if (const TWeakObjectPtr<UMaterialInterface>* Found = Cache.ImportedMaterials.Find(
+			PreparedMaterialInfo.MaterialHash))
 		{
 			if (Found->IsValid()) { return Found->Get(); }
 			Cache.ImportedMaterials.Remove(PreparedMaterialInfo.MaterialHash);

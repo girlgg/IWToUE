@@ -11,6 +11,7 @@
 #include "Importers/SoundImporter.h"
 #include "WraithX/CoDAssetType.h"
 #include "WraithX/GameProcess.h"
+#include "WraithX/WraithSettingsManager.h"
 
 FAssetImportManager::FAssetImportManager()
 {
@@ -64,8 +65,6 @@ bool FAssetImportManager::Initialize()
 void FAssetImportManager::Shutdown()
 {
 	UE_LOG(LogITUAssetImportManager, Log, TEXT("Shutting down AssetImportManager..."));
-
-	// TODO: Add logic to cancel any running Async Task (CurrentImportTaskHandle)
 
 	if (ProcessInstance.IsValid())
 	{
@@ -192,6 +191,20 @@ void FAssetImportManager::RunImportTask(FString BaseImportPath, TArray<TSharedPt
 	FText TaskLabel = FText::Format(
 		NSLOCTEXT("AssetImportManager", "ImportTaskLabel", "Importing {0} Assets"), FText::AsNumber(TotalAssets));
 
+	const UWraithSettings* CurrentSettings = nullptr;
+	if (GEditor)
+	{
+		if (const UWraithSettingsManager* SettingsManager = GEditor->GetEditorSubsystem<UWraithSettingsManager>())
+		{
+			CurrentSettings = SettingsManager->GetSettings();
+		}
+	}
+	if (!CurrentSettings)
+	{
+		UE_LOG(LogITUAssetImportManager, Error,
+		       TEXT("RunImportTask: Failed to get UWraithSettings. Import might use defaults or fail."));
+	}
+
 	for (const TSharedPtr<FCoDAsset>& Asset : AssetsToImport)
 	{
 		if (!Asset.IsValid())
@@ -230,7 +243,8 @@ void FAssetImportManager::RunImportTask(FString BaseImportPath, TArray<TSharedPt
 		Context.GameHandler = CurrentGameHandler.Get();
 		Context.ImportManager = this;
 		Context.AssetCache = &ImportCache;
-
+		Context.Settings = CurrentSettings;
+		
 		TArray<UObject*> CreatedObjectsForThisAsset;
 		FText AssetStatusText = FText::Format(
 			NSLOCTEXT("AssetImportManager", "ImportStatusFormat", "Importing {0}..."),

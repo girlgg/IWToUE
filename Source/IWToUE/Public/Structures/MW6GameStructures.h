@@ -454,7 +454,7 @@ inline uint32_t GMW6DXGIFormats[52]
 	67,
 	26,
 	71,
-	71,
+	72,
 	74,
 	74,
 	77,

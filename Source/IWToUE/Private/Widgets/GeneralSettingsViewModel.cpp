@@ -30,7 +30,7 @@ ECheckBoxState FGeneralSettingsViewModel::GetLoadAudioCheckState() const
 {
 	const UWraithSettings* Settings = GetSettings();
 	return Settings
-		       ? (Settings->General.bLoadMaps ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
+		       ? (Settings->General.bLoadAudio ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
 		       : ECheckBoxState::Undetermined;
 }
 

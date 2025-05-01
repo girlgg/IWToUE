@@ -198,4 +198,5 @@ private:
 	TSharedPtr<SAssetInfoPanel> AssetInfoPanel;
 
 	TSharedPtr<FWraithXViewModel> ViewModel;
+	TSharedPtr<FAssetImportManager> AssetImportManager;
 };

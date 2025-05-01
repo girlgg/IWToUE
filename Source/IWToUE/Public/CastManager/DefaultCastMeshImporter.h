@@ -3,8 +3,41 @@
 
 namespace SkeletalMeshImportData
 {
+	struct FBone;
 	struct FMaterial;
 }
+
+struct FPreparedStatMeshData
+{
+	bool bIsValid = false;
+	FString MeshName;
+	FString ParentPackagePath;
+	FString OriginalFilePath;
+
+	TArray<TTuple<int32, float>> LodModelIndexAndDistance;
+
+	FCastRoot* RootPtr = nullptr;
+	const FCastImportOptions* OptionsPtr = nullptr;
+	ICastMaterialImporter* MaterialImporterPtr = nullptr;
+};
+
+struct FPreparedSkelMeshData
+{
+	bool bIsValid = false;
+	FString MeshName;
+	FString ParentPackagePath;
+	FString OriginalFilePath;
+
+	TArray<SkeletalMeshImportData::FBone> RefBonesBinary;
+
+	TArray<TTuple<int32, float>> LodModelIndexAndDistance;
+
+	FCastRoot* RootPtr = nullptr; // Pointer to the relevant root
+	const FCastImportOptions* OptionsPtr = nullptr; // Pointer to options
+	ICastMaterialImporter* MaterialImporterPtr = nullptr;
+
+	int32 BaseModelIndex = -1;
+};
 
 class FDefaultCastMeshImporter : public ICastMeshImporter
 {
@@ -19,6 +52,33 @@ public:
 	                                          TArray<UObject*>& OutCreatedObjects) override;
 
 protected:
+	FPreparedSkelMeshData PrepareSkeletalMeshData_OffThread(
+		FCastScene& CastScene,
+		const FCastImportOptions& Options,
+		UObject* InParent,
+		FName Name,
+		ICastMaterialImporter* MaterialImporter,
+		const FString& OriginalFilePath
+	);
+
+	FPreparedStatMeshData PrepareStaticMeshData_OffThread(
+		FCastScene& CastScene,
+		const FCastImportOptions& Options,
+		UObject* InParent,
+		FName Name,
+		ICastMaterialImporter* MaterialImporter,
+		const FString& OriginalFilePath);
+
+	USkeletalMesh* CreateAndApplySkeletalMeshData_GameThread(
+		FPreparedSkelMeshData& PreparedData,
+		EObjectFlags Flags,
+		TArray<UObject*>& OutCreatedObjects);
+
+	UStaticMesh* CreateAndApplyStaticMeshData_GameThread(
+		FPreparedStatMeshData& PreparedData,
+		EObjectFlags Flags,
+		TArray<UObject*>& OutCreatedObjects);
+
 	bool PopulateMeshDescriptionFromCastModel(
 		const FCastRoot& Root,
 		const FCastModelInfo& ModelInfo,
@@ -31,7 +91,7 @@ protected:
 		TArray<UObject*>& OutCreatedObjects);
 
 	bool PopulateSkeletalMeshImportData(
-	const FCastRoot& Root,
+		const FCastRoot& Root,
 		const FCastModelInfo& ModelInfo,
 		FSkeletalMeshImportData& OutImportData,
 		const FCastImportOptions& Options,

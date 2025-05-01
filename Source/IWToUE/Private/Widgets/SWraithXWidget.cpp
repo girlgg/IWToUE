@@ -230,7 +230,6 @@ TSharedRef<SWidget> SWraithXWidget::CreateMainArea()
 					.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 					[
 						SNew(STextBlock)
-						.TextStyle(FAppStyle::Get(), "HeadingExtraSmall")
 						.Text(NSLOCTEXT("WraithX", "AssetDetails", "Asset Details"))
 					]
 					+ SVerticalBox::Slot()
@@ -293,7 +292,6 @@ TSharedRef<SWidget> SWraithXWidget::CreateBottomPanel()
 							.FillWidth(1.0f)
 							[
 								SAssignNew(ImportPathInput, SEditableTextBox)
-								.Style(FAppStyle::Get(), "FlatEditableTextBox")
 								.HintText(FIWToUELocalizationManager::Get().GetText("ImportPathHint"))
 								.Text(TAttribute<FText>::CreateSP(this, &SWraithXWidget::GetImportPathText))
 								.OnTextCommitted(this, &SWraithXWidget::HandleImportPathCommitted)
@@ -328,7 +326,6 @@ TSharedRef<SWidget> SWraithXWidget::CreateBottomPanel()
 						+ SVerticalBox::Slot()
 						[
 							SAssignNew(OptionalParamsInput, SEditableTextBox)
-							.Style(FAppStyle::Get(), "FlatEditableTextBox")
 							.HintText(FIWToUELocalizationManager::Get().GetText("OptionalParameters"))
 							.Text(TAttribute<FText>::CreateSP(this, &SWraithXWidget::GetOptionalParamsText))
 							.OnTextCommitted(this, &SWraithXWidget::HandleOptionalParamsCommitted)
@@ -499,6 +496,12 @@ FReply SWraithXWidget::HandleStartDiscoveryClicked()
 {
 	if (ViewModel.IsValid())
 	{
+		if (!AssetImportManager.IsValid())
+		{
+			AssetImportManager = MakeShared<FAssetImportManager>();
+			AssetImportManager->Initialize();
+			ViewModel->Initialize(AssetImportManager);
+		}
 		ViewModel->StartDiscovery();
 	}
 	return FReply::Handled();

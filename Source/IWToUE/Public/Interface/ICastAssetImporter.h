@@ -85,38 +85,67 @@ public:
 template <typename AssetType>
 AssetType* ICastAssetImporter::CreateAsset(const FString& PackagePath, const FString& AssetName, bool bAllowReplace)
 {
-	FString SanitizedAssetName = ObjectTools::SanitizeObjectName(AssetName);
-	FString FullPackagePath = FPaths::Combine(PackagePath, SanitizedAssetName);
-	UPackage* Package = ::CreatePackage(*FullPackagePath);
-	if (!Package)
+	auto CoreAssetCreationLogic = [](const FString& InPackagePath, const FString& InAssetName,
+	                                 bool bInAllowReplace) -> AssetType*
 	{
-		UE_LOG(LogCast, Error, TEXT("Failed to create package: %s"), *FullPackagePath);
-		return nullptr;
-	}
-	Package->FullyLoad();
+		FString SanitizedAssetName = ObjectTools::SanitizeObjectName(InAssetName);
+		FString FullPackagePath = FPaths::Combine(InPackagePath, SanitizedAssetName);
+		UPackage* Package = ::CreatePackage(*FullPackagePath);
 
-	AssetType* ExistingAsset = FindObject<AssetType>(Package, *SanitizedAssetName);
-	if (ExistingAsset && !bAllowReplace)
-	{
-		UE_LOG(LogCast, Warning, TEXT("Asset already exists and replacement not allowed: %s"), *FullPackagePath);
-		return ExistingAsset;
-	}
+		if (!Package)
+		{
+			UE_LOG(LogCast, Error, TEXT("CoreLogic: Failed to create package: %s"), *FullPackagePath);
+			return nullptr;
+		}
+		Package->FullyLoad();
 
-	if (ExistingAsset)
-	{
-		UE_LOG(LogCast, Log, TEXT("Replacing existing asset: %s"), *FullPackagePath);
-	}
+		AssetType* ExistingAsset = FindObject<AssetType>(Package, *SanitizedAssetName);
+		if (ExistingAsset && !bInAllowReplace)
+		{
+			UE_LOG(LogCast, Warning,
+			       TEXT("CoreLogic: Asset '%s' already exists in package '%s' and replacement not allowed."),
+			       *SanitizedAssetName, *FullPackagePath);
+			return ExistingAsset;
+		}
+		if (ExistingAsset)
+		{
+			UE_LOG(LogCast, Log, TEXT("CoreLogic: Replacing existing asset: %s"), *FullPackagePath);
+		}
 
-	AssetType* NewAsset = NewObject<AssetType>(Package, FName(*SanitizedAssetName), RF_Public | RF_Standalone);
-	if (NewAsset)
+		AssetType* ResultAsset = NewObject<AssetType>(Package, FName(*SanitizedAssetName), RF_Public | RF_Standalone);
+		if (ResultAsset)
+		{
+			ResultAsset->MarkPackageDirty();
+			FAssetRegistryModule::AssetCreated(ResultAsset);
+			UE_LOG(LogCast, Log, TEXT("CoreLogic: Successfully created/replaced asset: %s"), *FullPackagePath);
+		}
+		else
+		{
+			UE_LOG(LogCast, Error, TEXT("CoreLogic: Failed to create asset object: %s in package %s"),
+			       *SanitizedAssetName, *Package->GetName());
+		}
+
+		return ResultAsset;
+	};
+
+	if (IsInGameThread())
 	{
-		NewAsset->MarkPackageDirty();
-		FAssetRegistryModule::AssetCreated(NewAsset);
+		return CoreAssetCreationLogic(PackagePath, AssetName, bAllowReplace);
 	}
-	else
-	{
-		UE_LOG(LogCast, Error, TEXT("Failed to create asset object: %s in package %s"), *SanitizedAssetName,
-		       *Package->GetName());
-	}
-	return NewAsset;
+	TPromise<AssetType*> Promise;
+	TFuture<AssetType*> Future = Promise.GetFuture();
+
+	AsyncTask(ENamedThreads::GameThread,
+	          [InPackagePath = PackagePath,
+		          InAssetName = AssetName,
+		          bInAllowReplace = bAllowReplace,
+		          CoreLogic = CoreAssetCreationLogic,
+		          Promise = MoveTemp(Promise)]() mutable
+	          {
+		          AssetType* Result = CoreLogic(InPackagePath, InAssetName, bInAllowReplace);
+		          Promise.SetValue(Result);
+	          });
+
+	AssetType* Result = Future.Get();
+	return Result;
 }

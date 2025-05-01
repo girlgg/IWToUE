@@ -41,9 +41,46 @@ namespace HalfFloatHelper
 	static constexpr int32 MinD = MinC - SubC - 1;
 };
 
+/**
+ * @brief Helper class for asset operations.
+ */
 namespace FCoDAssetHelper
 {
-	UTexture2D* CreateTextureFromDDSData(const TArray<uint8>& ImageDataArray, const FString& TextureName,
+	struct FPreparedTextureData
+	{
+		FString TextureName;
+		FString PackagePath;
+		size_t Width = 0;
+		size_t Height = 0;
+		EPixelFormat FinalPixelFormat = PF_Unknown;
+		ETextureSourceFormat SourceDataFormat = TSF_Invalid;
+		TextureCompressionSettings CompressionSettings = TC_Default;
+		bool bSRGB = false;
+		TArray<uint8> Mip0Data;
+
+		bool IsValid() const
+		{
+			return Width > 0 && Height > 0 && !Mip0Data.IsEmpty() &&
+				   FinalPixelFormat != PF_Unknown && SourceDataFormat != TSF_Invalid;
+		}
+	};
+
+	/**
+	 * @brief Creates/configures the UTexture2D asset. MUST run on the Game Thread.
+	 * @param PreparedData The data prepared by the calling thread.
+	 * @return Pointer to the created UTexture2D, or nullptr on failure.
+	 */
+	UTexture2D* CreateTextureOnGameThread(FPreparedTextureData PreparedData);
+	/**
+	 * @brief Creates a UTexture2D asset from raw DDS image data. Ensures UObject operations run on the Game Thread.
+	 * Handles SRGB correctly by letting DirectXTex convert to linear, then setting the SRGB flag in Unreal.
+	 *
+	 * @param DDSDataArray The raw byte array containing the DDS file data.
+	 * @param TextureName The desired name for the new Texture2D asset.
+	 * @param PackagePath The desired package path (e.g., "/Game/Textures").
+	 * @return A pointer to the newly created UTexture2D, or nullptr if creation failed.
+	 */
+	UTexture2D* CreateTextureFromDDSData(const TArray<uint8>& DDSDataArray, const FString& TextureName,
 	                                     const FString& PackagePath);
 	/**
 	 * Creates a USoundWave asset from raw WAV audio data.
@@ -121,4 +158,3 @@ namespace FCoDAssetNameHelper
 		return false;
 	}
 };
-

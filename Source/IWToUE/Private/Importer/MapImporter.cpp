@@ -528,7 +528,7 @@ bool FMapImporter::ProcessModelDependencies_MapHelper(FWraithXModel& InOutModelD
 				FCastTextureInfo& CastTextureInfo = CastMaterialInfo.Textures.AddDefaulted_GetRef();
 				CastTextureInfo.TextureName = WraithImage.ImageName;
 				CastTextureInfo.TextureObject = WraithImage.ImageObject;
-				FString ParamName = FString::Printf(TEXT("Tex_Semantic_0x%X"), WraithImage.SemanticHash);
+				FString ParamName = FString::Printf(TEXT("unk_semantic_0x%X"), WraithImage.SemanticHash);
 				CastTextureInfo.TextureSlot = ParamName;
 				CastTextureInfo.TextureType = ParamName;
 			}
@@ -716,7 +716,7 @@ bool FMapImporter::PrepareMaterialInfo(const uint64 MaterialPtr, FWraithXMateria
 			FCastTextureInfo& TextureInfo = OutMaterialInfo.Textures.AddDefaulted_GetRef();
 			TextureInfo.TextureName = ImageName; // Use potentially updated name
 			TextureInfo.TextureObject = TextureObj;
-			FString ParamName = FString::Printf(TEXT("Tex_Semantic_0x%X"), ImageInfo.SemanticHash);
+			FString ParamName = FString::Printf(TEXT("unk_semantic_0x%X"), ImageInfo.SemanticHash);
 			TextureInfo.TextureSlot = ParamName;
 			TextureInfo.TextureType = ParamName;
 			ImageInfo.ImageObject = TextureObj;
