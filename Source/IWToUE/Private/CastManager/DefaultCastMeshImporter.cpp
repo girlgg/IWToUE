@@ -1113,7 +1113,7 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& R
 		if (FinalMaterialIndex == INDEX_NONE)
 		{
 			UMaterialInterface* UnrealMaterial = nullptr;
-			MaterialImportName = FString::Printf(TEXT("MI_Hash_%llu"), Mesh.MaterialHash);
+			MaterialImportName = FString::Printf(TEXT("MI_Hash_%llx"), Mesh.MaterialHash);
 			if (int32* FoundFinalIndex = SharedMaterialMap.Find(Mesh.MaterialHash))
 			{
 				FinalMaterialIndex = *FoundFinalIndex;

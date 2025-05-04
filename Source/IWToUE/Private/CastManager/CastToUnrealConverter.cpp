@@ -37,11 +37,49 @@ UObject* FCastToUnrealConverter::Convert(FCastScene& CastScene, const FCastImpor
 		UE_LOG(LogCast, Log, TEXT("Skipping material processing (Not requested or no materials)."));
 	}
 
+	// --- Map Material Hash to Index for Meshes ---
+	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "Conv_MapMaterials", "Mapping Materials to Meshes..."));
+	for (FCastRoot& Root : CastScene.Roots)
+	{
+		TMap<uint64, int32> MaterialHashMapToIndex;
+		MaterialHashMapToIndex.Reserve(Root.Materials.Num());
+		for (int32 MatIdx = 0; MatIdx < Root.Materials.Num(); ++MatIdx)
+		{
+			MaterialHashMapToIndex.Add(Root.Materials[MatIdx].MaterialHash, MatIdx);
+		}
+
+		for (FCastModelInfo& Model : Root.Models)
+		{
+			for (FCastMeshInfo& Mesh : Model.Meshes)
+			{
+				if (Mesh.MaterialHash != 0)
+				{
+					if (const int32* FoundIndexPtr = MaterialHashMapToIndex.Find(Mesh.MaterialHash))
+					{
+						Mesh.MaterialIndex = *FoundIndexPtr;
+					}
+					else
+					{
+						UE_LOG(LogCast, Warning,
+						       TEXT(
+							       "Mesh '%s' has MaterialHash %llu, but no matching material was found in the scene root's material list. Assigning MaterialIndex -1."
+						       ), *Mesh.Name, Mesh.MaterialHash);
+						Mesh.MaterialIndex = INDEX_NONE;
+					}
+				}
+				else
+				{
+					Mesh.MaterialIndex = INDEX_NONE;
+				}
+			}
+		}
+	}
+
 
 	// --- Asset Import ---
 	if (Options.bImportMesh && Options.bImportAsSkeletal && CastScene.GetSkinnedMeshNum() > 0)
 	{
-		SlowTask.EnterProgressFrame(65, NSLOCTEXT("CastImporter", "Conv_ImportSkM", "Importing Skeletal Mesh..."));
+		SlowTask.EnterProgressFrame(60, NSLOCTEXT("CastImporter", "Conv_ImportSkM", "Importing Skeletal Mesh..."));
 		UE_LOG(LogCast, Log, TEXT("Importing as Skeletal Mesh: %s"), *AssetBaseName);
 
 		PrimaryCreatedObject = MeshImporter->ImportSkeletalMesh(
