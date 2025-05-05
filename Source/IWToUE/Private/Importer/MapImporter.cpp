@@ -20,8 +20,8 @@ bool FMapImporter::Import(const FAssetImportContext& Context, TArray<UObject*>& 
                           FOnAssetImportProgress ProgressDelegate)
 {
 	TSharedPtr<FCoDMap> MapInfo = Context.GetAssetInfo<FCoDMap>();
-	if (!MapInfo.IsValid() || !Context.GameHandler || !Context.ImportManager || !Context.AssetCache || !
-		MeshImporterInternal.IsValid() || !MaterialImporterInternal.IsValid())
+	if (!MapInfo.IsValid() || !Context.GameHandler || !Context.ImportManager || !Context.AssetCache ||
+		!MeshImporterInternal.IsValid() || !MaterialImporterInternal.IsValid())
 	{
 		UE_LOG(LogITUAssetImporter, Error, TEXT("Map Import failed: Invalid context parameters. Asset: %s"),
 		       *MapInfo->AssetName);
@@ -105,16 +105,8 @@ bool FMapImporter::Import(const FAssetImportContext& Context, TArray<UObject*>& 
 
 
 		FCastMaterialInfo PreparedInfo;
-		if (PrepareMaterialInfo(MeshData.MaterialPtr, MaterialData, PreparedInfo, Context,
-		                        MapTexturesPackagePath))
-		{
-			MapMeshMaterialInfos.Add(CurrentMaterialHash, PreparedInfo);
-		}
-		else
-		{
-			UE_LOG(LogITUAssetImporter, Warning, TEXT("Failed to prepare material info for Hash %llu (Chunk: %s)"),
-			       CurrentMaterialHash, *MeshName);
-		}
+		PrepareMaterialInfo(MeshData.MaterialPtr, MaterialData, PreparedInfo, Context, MapTexturesPackagePath);
+		MapMeshMaterialInfos.Add(CurrentMaterialHash, PreparedInfo);
 
 		ProcessedMapMaterials++;
 		Progress = 0.05f + 0.25f * (static_cast<float>(ProcessedMapMaterials) / FMath::Max(1, TotalMapMaterials));
@@ -427,62 +419,104 @@ UObject* FMapImporter::ImportStaticModelAsset(uint64 ModelPtr, const FAssetImpor
 		return nullptr;
 	}
 
-	// --- 5. Create Package ---
+	// --- Prepare data for Game Thread ---
+	TSharedPtr<FCastScene> SceneData = MakeShared<FCastScene>();
+	SceneData->Roots.Add(MoveTemp(SceneRoot));
+
 	FString PackagePath = FPaths::Combine(StaticModelBasePath, SanitizedAssetName);
-	UPackage* Package = CreatePackage(*PackagePath);
-	if (!Package)
-	{
-		UE_LOG(LogITUAssetImporter, Error, TEXT("ImportStaticModelAsset: Failed to create package: %s"), *PackagePath);
-		return nullptr;
-	}
-	Package->FullyLoad();
-
-	// --- 6. Import Mesh using ICastMeshImporter ---
-	FCastScene Scene;
-	Scene.Roots.Add(MoveTemp(SceneRoot));
-
-	bool bIsSkeletal = Scene.Roots[0].Models.IsValidIndex(Scene.Roots[0].ModelLodInfo[0].ModelIndex) &&
-		Scene.Roots[0].Models[Scene.Roots[0].ModelLodInfo[0].ModelIndex].Skeletons.Num() > 0 &&
-		Scene.Roots[0].Models[Scene.Roots[0].ModelLodInfo[0].ModelIndex].Skeletons[0].Bones.Num() > 0;
+	FName AssetName = FName(*SanitizedAssetName);
+	EObjectFlags AssetFlags = RF_Public | RF_Standalone;
+	ICastMaterialImporter* CapturedMaterialImporter = MaterialImporter;
+	ICastMeshImporter* CapturedMeshImporter = MeshImporter;
+	FImportedAssetsCache* CapturedCache = &Cache;
 
 	UObject* ImportedMeshObject = nullptr;
 	TArray<UObject*> CreatedMeshDependencies;
-	FCastImportOptions Options;
 
-	if (bIsSkeletal)
+	auto GameThreadTask = [=]() mutable -> UObject* {
+        UE_LOG(LogITUAssetImporter, Log, TEXT("ImportStaticModelAsset: Creating package and importing mesh for %s [Game Thread]"), *AssetName.ToString());
+
+        // --- 5. Create Package ---
+        UPackage* Package = CreatePackage(*PackagePath);
+        if (!Package)
+        {
+            UE_LOG(LogITUAssetImporter, Error, TEXT("ImportStaticModelAsset: Failed to create package: %s [Game Thread]"), *PackagePath);
+            return nullptr;
+        }
+        Package->FullyLoad();
+
+        // --- 6. Import Mesh using ICastMeshImporter ---
+        FCastScene& Scene = *SceneData;
+
+        bool bIsSkeletal = Scene.Roots.Num() > 0 &&
+                           Scene.Roots[0].ModelLodInfo.Num() > 0 &&
+                           Scene.Roots[0].Models.IsValidIndex(Scene.Roots[0].ModelLodInfo[0].ModelIndex) &&
+                           Scene.Roots[0].Models[Scene.Roots[0].ModelLodInfo[0].ModelIndex].Skeletons.Num() > 0 &&
+                           Scene.Roots[0].Models[Scene.Roots[0].ModelLodInfo[0].ModelIndex].Skeletons[0].Bones.Num() > 0;
+
+        UObject* ResultMeshObject = nullptr;
+        TArray<UObject*> LocalCreatedMeshDependencies;
+        FCastImportOptions Options;
+
+        if (bIsSkeletal)
+        {
+            if (!CapturedMeshImporter)
+            {
+                 UE_LOG(LogITUAssetImporter, Error, TEXT("ImportStaticModelAsset: MeshImporter (Skeletal) is null. [Game Thread]"));
+                 return nullptr;
+            }
+            ResultMeshObject = CapturedMeshImporter->ImportSkeletalMesh(Scene, Options, Package, AssetName,
+                                                                  AssetFlags, CapturedMaterialImporter, TEXT(""),
+                                                                  LocalCreatedMeshDependencies);
+        }
+        else
+        {
+            if (!CapturedMeshImporter)
+            {
+                 UE_LOG(LogITUAssetImporter, Error, TEXT("ImportStaticModelAsset: MeshImporter (Static) is null. [Game Thread]"));
+                 return nullptr;
+            }
+            ResultMeshObject = CapturedMeshImporter->ImportStaticMesh(Scene, Options, Package, AssetName,
+                                                                AssetFlags, CapturedMaterialImporter, TEXT(""),
+                                                                LocalCreatedMeshDependencies);
+        }
+
+        // --- 7. Finalize and Cache ---
+        if (ResultMeshObject)
+        {
+            UE_LOG(LogITUAssetImporter, Log,
+                   TEXT("ImportStaticModelAsset: Successfully imported model asset '%s' into package '%s'. [Game Thread]"),
+                   *ResultMeshObject->GetName(), *Package->GetName());
+
+            CapturedCache->AddCreatedAsset(ResultMeshObject);
+            CapturedCache->AddCreatedAssets(LocalCreatedMeshDependencies);
+
+            {
+                FScopeLock Lock(&CapturedCache->CacheMutex);
+                CapturedCache->ImportedModels.Add(ModelPtr, ResultMeshObject);
+            }
+
+            Package->MarkPackageDirty();
+
+            return ResultMeshObject;
+        }
+        else
+        {
+            UE_LOG(LogITUAssetImporter, Error, TEXT("ImportStaticModelAsset: Mesh Importer failed for model: %s [Game Thread]"),
+                   *AssetName.ToString());
+            return nullptr;
+        }
+    };
+	if (IsInGameThread())
 	{
-		UE_LOG(LogITUAssetImporter, Verbose, TEXT("ImportStaticModelAsset: Importing %s as Skeletal Mesh."),
-		       *SanitizedAssetName);
-		ImportedMeshObject = MeshImporter->ImportSkeletalMesh(Scene, Options, Package, FName(*SanitizedAssetName),
-		                                                      RF_Public | RF_Standalone, MaterialImporter, TEXT(""),
-		                                                      CreatedMeshDependencies);
+		ImportedMeshObject = GameThreadTask();
 	}
 	else
 	{
-		UE_LOG(LogITUAssetImporter, Verbose, TEXT("ImportStaticModelAsset: Importing %s as Static Mesh."),
-		       *SanitizedAssetName);
-		ImportedMeshObject = MeshImporter->ImportStaticMesh(Scene, Options, Package, FName(*SanitizedAssetName),
-		                                                    RF_Public | RF_Standalone, MaterialImporter, TEXT(""),
-		                                                    CreatedMeshDependencies);
+		TFuture<UObject*> Future = Async(EAsyncExecution::TaskGraphMainThread, MoveTemp(GameThreadTask));
+		ImportedMeshObject = Future.Get();
 	}
-
-	// --- 7. Finalize and Cache ---
-	if (ImportedMeshObject)
-	{
-		UE_LOG(LogITUAssetImporter, Log,
-		       TEXT("ImportStaticModelAsset: Successfully imported model asset '%s' into package '%s'."),
-		       *ImportedMeshObject->GetName(), *Package->GetName());
-		Cache.AddCreatedAsset(ImportedMeshObject);
-		Cache.AddCreatedAssets(CreatedMeshDependencies);
-		{
-			FScopeLock Lock(&Cache.CacheMutex);
-			Cache.ImportedModels.Add(ModelPtr, ImportedMeshObject); // Cache the imported model
-		}
-		return ImportedMeshObject;
-	}
-	UE_LOG(LogITUAssetImporter, Error, TEXT("ImportStaticModelAsset: Mesh Importer failed for model: %s"),
-	       *SanitizedAssetName);
-	return nullptr;
+	return ImportedMeshObject;
 }
 
 bool FMapImporter::ProcessModelDependencies_MapHelper(FWraithXModel& InOutModelData, FCastRoot& OutSceneRoot,
@@ -694,7 +728,7 @@ void FMapImporter::PlaceActorsInLevel_GameThread(const FWraithXMap& MapData,
 	UE_LOG(LogITUAssetImporter, Log, TEXT("PlaceActorsInLevel_GameThread: Finished placing actors."));
 }
 
-bool FMapImporter::PrepareMaterialInfo(const uint64 MaterialPtr, FWraithXMaterial& InMaterialData,
+void FMapImporter::PrepareMaterialInfo(const uint64 MaterialPtr, FWraithXMaterial& InMaterialData,
                                        FCastMaterialInfo& OutMaterialInfo, const FAssetImportContext& Context,
                                        const FString& BaseTexturePath)
 {
@@ -703,34 +737,24 @@ bool FMapImporter::PrepareMaterialInfo(const uint64 MaterialPtr, FWraithXMateria
 		OutMaterialInfo.Name = FString::Printf(
 			TEXT("MapMat_Hash_%llx"), InMaterialData.MaterialHash);
 	OutMaterialInfo.MaterialHash = InMaterialData.MaterialHash;
-	OutMaterialInfo.MaterialPtr = MaterialPtr; // Store original pointer
+	OutMaterialInfo.MaterialPtr = MaterialPtr;
 	OutMaterialInfo.Textures.Reserve(InMaterialData.Images.Num());
 
-	bool bSuccess = true;
 	for (FWraithXImage& ImageInfo : InMaterialData.Images)
 	{
-		FString ImageName = ImageInfo.ImageName; // ProcessTexture might update this
+		FString ImageName = ImageInfo.ImageName;
 
 		if (UTexture2D* TextureObj = ProcessTexture(ImageInfo.ImagePtr, ImageName, Context, BaseTexturePath))
 		{
 			FCastTextureInfo& TextureInfo = OutMaterialInfo.Textures.AddDefaulted_GetRef();
-			TextureInfo.TextureName = ImageName; // Use potentially updated name
+			TextureInfo.TextureName = ImageName;
 			TextureInfo.TextureObject = TextureObj;
-			FString ParamName = FString::Printf(TEXT("unk_semantic_0x%X"), ImageInfo.SemanticHash);
+			FString ParamName = FString::Printf(TEXT("unk_semantic_0x%x"), ImageInfo.SemanticHash);
 			TextureInfo.TextureSlot = ParamName;
 			TextureInfo.TextureType = ParamName;
 			ImageInfo.ImageObject = TextureObj;
 		}
-		else
-		{
-			UE_LOG(LogITUAssetImporter, Warning,
-			       TEXT("PrepareMaterialInfo: Failed texture %s (Ptr 0x%llX) for material %s"), *ImageName,
-			       ImageInfo.ImagePtr, *OutMaterialInfo.Name);
-			bSuccess = false;
-		}
 	}
-
-	return bSuccess;
 }
 
 UTexture2D* FMapImporter::ProcessTexture(uint64 ImagePtr, FString& InOutImageName, const FAssetImportContext& Context,

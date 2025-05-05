@@ -50,7 +50,7 @@ private:
 		FImportedAssetsCache& Cache
 	);
 
-	static bool PrepareMaterialInfo(
+	static void PrepareMaterialInfo(
 		uint64 MaterialPtr,
 		FWraithXMaterial& InMaterialData,
 		FCastMaterialInfo& OutMaterialInfo,

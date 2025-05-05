@@ -248,7 +248,8 @@ FPreparedStatMeshData FDefaultCastMeshImporter::PrepareStaticMeshData_OffThread(
 		return PreparedData;
 	}
 
-	FCastRoot& Root = CastScene.Roots[0];
+	PreparedData.RootPtr = &CastScene.Roots[0];
+	FCastRoot& Root = *PreparedData.RootPtr;
 
 	if (Root.ModelLodInfo.IsEmpty())
 	{

@@ -46,8 +46,8 @@
 
 | 虚幻引擎版本 | 支持情况 |
 | :- |  :- |
-| **5.4 及之后** | 完全支持 |
-| **5.3 及之前** | 不支持 |
+| **5.5 及之后** | 完全支持 |
+| **5.4 及之前** | 不支持 |
 
 ## 内置导入器
 
@@ -86,11 +86,12 @@
 
 ## 地图导入器
 
-支持从[DotnesktRemastered](https://github.com/girlgg/DotnesktRemastered)导出的json格式的地图的导入
+~~支持从[DotnesktRemastered](https://github.com/girlgg/DotnesktRemastered)导出的json格式的地图的导入~~
 
 ## 待修复问题
 
 *   **物理资产问题:** 当前插件自动创建的物理资产存在形体问题，需要手动重新创建。
+*   **json导入地图:** 由于导入方法大幅度修改，现在暂时不支持使用json导入地图，等待未来修复
 
 ### 说明
 
