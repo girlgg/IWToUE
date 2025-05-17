@@ -9,6 +9,7 @@
 #include "ThirdSupport/SABSupport.h"
 #include "Utils/CoDAssetHelper.h"
 #include "Utils/CoDBonesHelper.h"
+#include "WraithX/LocateGameInfo.h"
 
 bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo, FWraithXModel& OutModel)
 {
@@ -113,7 +114,65 @@ bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo,
 
 bool FModernWarfare6AssetHandler::ReadAnimData(TSharedPtr<FCoDAnim> AnimInfo, FWraithXAnim& OutAnim)
 {
-	return false;
+	FMW6XAnim AnimData;
+	if (!MemoryReader->ReadMemory<FMW6XAnim>(AnimInfo->AssetPointer, AnimData))
+	{
+		UE_LOG(LogTemp, Error, TEXT("ReadAnimData: Failed to read FMW6XAnim at handle 0x%llX"), AnimInfo->AssetPointer);
+		return false;
+	}
+	if (!AnimData.DataInfo.StreamInfoPtr) return false;
+	OutAnim.AnimationName = AnimInfo->AssetName;
+	OutAnim.FrameCount = AnimData.FrameCount;
+	OutAnim.FrameRate = AnimData.Framerate;
+
+	OutAnim.LoopingAnimation = (AnimData.Padding2[4] & 1);
+	OutAnim.AdditiveAnimation = AnimData.AssetType == 0x6;
+
+	OutAnim.NoneRotatedBoneCount = AnimData.NoneRotatedBoneCount;
+	OutAnim.TwoDRotatedBoneCount = AnimData.TwoDRotatedBoneCount;
+	OutAnim.NormalRotatedBoneCount = AnimData.NormalRotatedBoneCount;
+	OutAnim.TwoDStaticRotatedBoneCount = AnimData.TwoDStaticRotatedBoneCount;
+	OutAnim.NormalStaticRotatedBoneCount = AnimData.NormalStaticRotatedBoneCount;
+	OutAnim.NormalTranslatedBoneCount = AnimData.NormalTranslatedBoneCount;
+	OutAnim.PreciseTranslatedBoneCount = AnimData.PreciseTranslatedBoneCount;
+	OutAnim.StaticTranslatedBoneCount = AnimData.StaticTranslatedBoneCount;
+	OutAnim.NoneTranslatedBoneCount = AnimData.NoneTranslatedBoneCount;
+	OutAnim.TotalBoneCount = AnimData.TotalBoneCount;
+	OutAnim.NotificationCount = AnimData.NotetrackCount;
+	OutAnim.ReaderInformationPointer = AnimInfo->AssetPointer;
+
+	for (int32 BoneIdx = 0; BoneIdx < AnimData.TotalBoneCount; ++BoneIdx)
+	{
+		uint32 BoneNameHash;
+		MemoryReader->ReadMemory<uint32>(AnimData.BoneIDsPtr + BoneIdx * 4, BoneNameHash);
+		FString BoneName = FCoDDatabaseService::Get().GetPrintfAssetName(BoneNameHash, "Bone");
+		OutAnim.Reader.BoneNames.Add(BoneName);
+	}
+
+	for (int32 NoteTrackIdx = 0; NoteTrackIdx < AnimData.NotetrackCount; ++NoteTrackIdx)
+	{
+		FMW6XAnimNoteTrack NoteTrack;
+		MemoryReader->ReadMemory<FMW6XAnimNoteTrack>(
+			AnimData.NotificationsPtr + NoteTrackIdx * sizeof(FMW6XAnimNoteTrack), NoteTrack);
+		FString TrackName;
+		// MemoryReader->Sta
+		MemoryReader->ReadString(GameProcess->ParasyteState->StringsAddress + NoteTrack.Name, TrackName);
+		OutAnim.Reader.Notetracks.Emplace(TrackName, NoteTrack.Time * OutAnim.FrameCount);
+	}
+
+	FMW6XAnimDeltaParts AnimDeltaData;
+	MemoryReader->ReadMemory<FMW6XAnimDeltaParts>(AnimData.DeltaPartsPtr, AnimDeltaData);
+
+	OutAnim.DeltaTranslationPtr = AnimDeltaData.DeltaTranslationsPtr;
+	OutAnim.Delta2DRotationsPtr = AnimDeltaData.Delta2DRotationsPtr;
+	OutAnim.Delta3DRotationsPtr = AnimDeltaData.Delta3DRotationsPtr;
+
+	OutAnim.RotationType = EAnimationKeyTypes::DivideBySize;
+	OutAnim.TranslationType = EAnimationKeyTypes::MinSizeTable;
+
+	OutAnim.SupportsInlineIndicies = true;
+
+	return true;
 }
 
 bool FModernWarfare6AssetHandler::ReadImageData(TSharedPtr<FCoDImage> ImageInfo, TArray<uint8>& OutImageData,
@@ -426,7 +485,13 @@ bool FModernWarfare6AssetHandler::ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWrai
 		MeshInfo.VertexPositions.Reserve(VertexCount);
 		MeshInfo.VertexNormals.Reserve(VertexCount);
 		MeshInfo.VertexTangents.Reserve(VertexCount);
-		MeshInfo.VertexUV.Reserve(VertexCount);
+
+		MeshInfo.VertexUVs.SetNum(UgbSurfData.LayerCount);
+		for (uint32 i = 0; i < UgbSurfData.LayerCount; i++)
+		{
+			MeshInfo.VertexUVs[i].Reserve(VertexCount);
+		}
+
 		if (UgbSurfData.ColorOffset != 0) MeshInfo.VertexColor.Reserve(VertexCount);
 
 		uint64 XyzPtr = Zone.DrawVerts.PosData + UgbSurfData.XyzOffset;
@@ -435,6 +500,7 @@ bool FModernWarfare6AssetHandler::ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWrai
 		uint64 ColorPtr = (UgbSurfData.ColorOffset != 0) ? (Zone.DrawVerts.PosData + UgbSurfData.ColorOffset) : 0;
 
 		FMW6GfxWorldDrawOffset WorldDrawOffset = UgbSurfData.WorldDrawOffset;
+
 
 		for (uint16 VertexIdx = 0; VertexIdx < VertexCount; ++VertexIdx)
 		{
@@ -457,13 +523,14 @@ bool FModernWarfare6AssetHandler::ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWrai
 			MeshInfo.VertexNormals.Add(Normal);
 
 			// UVs
-			uint64 CurrentUVPtr = TexCoordPtr + sizeof(FVector2f) * (VertexIdx + UgbSurfData.LayerCount - 1);
-			FVector2f UV;
-			MemoryReader->ReadMemory<FVector2f>(CurrentUVPtr, UV);
-			MeshInfo.VertexUV.Add(MoveTemp(UV));
-
-			// Read additional UV layers if they exist
-			// for (uint32 LayerIdx = 1; LayerIdx < UgbSurfData.LayerCount; ++LayerIdx) { ... read into MeshInfo.VertexUV2 etc ... }
+			for (uint32 LayerIdx = 0; LayerIdx < UgbSurfData.LayerCount; ++LayerIdx)
+			{
+				uint64 CurrentLayerUVPtr = TexCoordPtr + sizeof(FVector2f) * (VertexIdx * UgbSurfData.LayerCount +
+					LayerIdx);
+				FVector2f LayerUV;
+				MemoryReader->ReadMemory<FVector2f>(CurrentLayerUVPtr, LayerUV);
+				MeshInfo.VertexUVs[LayerIdx].Add(MoveTemp(LayerUV));
+			}
 
 			// Color
 			if (ColorPtr != 0)
@@ -660,19 +727,40 @@ bool FModernWarfare6AssetHandler::TranslateModel(FWraithXModel& InModel, int32 L
 
 bool FModernWarfare6AssetHandler::TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo)
 {
+	OutAnimInfo.Name = InAnim.AnimationName;
+	OutAnimInfo.Framerate = InAnim.FrameRate;
+	OutAnimInfo.Looping = InAnim.LoopingAnimation;
+
+	OutAnimInfo.Type = ECastAnimationType::Relative;
+	if (InAnim.DeltaTranslationPtr || InAnim.Delta2DRotationsPtr || InAnim.Delta3DRotationsPtr)
+	{
+		OutAnimInfo.Type = ECastAnimationType::Delta;
+		OutAnimInfo.DeltaTagName = "tag_origin";
+	}
+	if (InAnim.AdditiveAnimation)
+	{
+		OutAnimInfo.Type = ECastAnimationType::Additive;
+	}
+
+	LoadXAnim(InAnim, OutAnimInfo);
+
+	for (auto& NoteTrack : InAnim.Reader.Notetracks)
+	{
+		OutAnimInfo.AddNotificationKey(NoteTrack.Key, NoteTrack.Value);
+	}
+	if (InAnim.DeltaTranslationPtr)
+	{
+		DeltaTranslations64(OutAnimInfo, (InAnim.FrameCount > 255) ? 2 : 1, InAnim);
+	}
+	if (InAnim.Delta2DRotationsPtr)
+	{
+		Delta2DRotations64(OutAnimInfo, (InAnim.FrameCount > 255) ? 2 : 1, InAnim);
+	}
+	if (InAnim.Delta3DRotationsPtr)
+	{
+		Delta3DRotations64(OutAnimInfo, (InAnim.FrameCount > 255) ? 2 : 1, InAnim);
+	}
 	return false;
-}
-
-void FModernWarfare6AssetHandler::ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim)
-{
-}
-
-void FModernWarfare6AssetHandler::ApplyDelta2DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim)
-{
-}
-
-void FModernWarfare6AssetHandler::ApplyDelta3DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim)
-{
 }
 
 bool FModernWarfare6AssetHandler::LoadStreamedModelData(const FWraithXModel& InModel, FWraithXModelLod& InOutLod,
@@ -771,7 +859,10 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 		Mesh.VertexPositions.Reserve(Submesh.VertexCount);
 		Mesh.VertexTangents.Reserve(Submesh.VertexCount);
 		Mesh.VertexNormals.Reserve(Submesh.VertexCount);
-		Mesh.VertexUV.Reserve(Submesh.VertexCount);
+
+		Mesh.VertexUVs.SetNum(1);
+		Mesh.VertexUVs[0].Reserve(Submesh.VertexCount);
+
 		Mesh.VertexColor.Reserve(Submesh.VertexCount);
 
 		for (uint32 VertexIdx = 0; VertexIdx < Submesh.VertexCount; ++VertexIdx)
@@ -796,7 +887,7 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 			VertexUVReader << HalfUvU << HalfUvV;
 			float HalfU = HalfFloatHelper::ToFloat(HalfUvU);
 			float HalfV = HalfFloatHelper::ToFloat(HalfUvV);
-			Mesh.VertexUV.Emplace(HalfU, HalfV);
+			Mesh.VertexUVs[0].Emplace(HalfU, HalfV);
 		}
 		// TODO Second UV
 		// 顶点色
@@ -827,4 +918,455 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 			Mesh.Faces.Add(Faces[0]);
 		}
 	}
+}
+
+void FModernWarfare6AssetHandler::LoadXAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnim)
+{
+	FMW6XAnim AnimHeader;
+	MemoryReader->ReadMemory(InAnim.ReaderInformationPointer, AnimHeader);
+
+	uint8* DataByte = nullptr;
+	int16* DataShort = nullptr;
+	int32* DataInt = nullptr;
+
+	TArray<uint8*> RandomDataBytes;
+	TArray<int16*> RandomDataShorts;
+
+	OutAnim.Type = ECastAnimationType::Relative;
+
+	TArray<uint32> AnimPackedInfo;
+	MemoryReader->ReadArray(AnimHeader.DataInfo.PackedInfoPtr, AnimPackedInfo,
+	                        AnimHeader.DataInfo.PackedInfoCount);
+	TArray<uint8> IndicesBuffer;
+	MemoryReader->ReadArray(AnimHeader.IndicesPtr, IndicesBuffer,
+	                        AnimHeader.FrameCount >= 0x100 ? AnimHeader.IndexCount * 2 : AnimHeader.IndexCount);
+
+	uint16* Indices = reinterpret_cast<uint16*>(IndicesBuffer.GetData());
+
+	TArray<TArray<uint8>> AnimBuffers;
+	for (uint32 CountIdx = 0; CountIdx < AnimHeader.DataInfo.OffsetCount; ++CountIdx)
+	{
+		FMW6XAnimStreamInfo StreamInfo;
+		MemoryReader->ReadMemory<FMW6XAnimStreamInfo>(
+			AnimHeader.DataInfo.StreamInfoPtr + CountIdx * sizeof(FMW6XAnimStreamInfo), StreamInfo);
+
+		TArray<uint8> AnimBuffer = GameProcess->GetDecrypt()->ExtractXSubPackage(
+			StreamInfo.StreamKey, StreamInfo.Size);
+		AnimBuffers.Add(AnimBuffer);
+		if (CountIdx == 0)
+		{
+			if (AnimHeader.DataInfo.DataByteOffset != -1)
+				DataByte = AnimBuffers[0].GetData() + AnimHeader.DataInfo.DataByteOffset;
+
+			if (AnimHeader.DataInfo.DataShortOffset != -1)
+				DataShort = reinterpret_cast<int16*>(AnimBuffers[0].GetData() + AnimHeader.DataInfo.
+					DataShortOffset);
+
+			if (AnimHeader.DataInfo.DataIntOffset != -1)
+				DataInt = reinterpret_cast<int32*>(AnimBuffers[0].GetData() + AnimHeader.DataInfo.
+					DataIntOffset);
+		}
+		uint32 RandomDataAOffset;
+		MemoryReader->ReadMemory<uint32>(AnimHeader.DataInfo.OffsetPtr2 + CountIdx * 4, RandomDataAOffset);
+		uint32 RandomDataBOffset;
+		MemoryReader->ReadMemory<uint32>(AnimHeader.DataInfo.OffsetPtr + CountIdx * 4, RandomDataBOffset);
+
+		if (RandomDataAOffset != -1)
+			RandomDataBytes.Add(AnimBuffers[CountIdx].GetData() + RandomDataAOffset);
+		else
+			RandomDataBytes.Add(nullptr);
+		if (RandomDataBOffset != -1)
+			RandomDataShorts.Add(reinterpret_cast<int16*>(AnimBuffers[CountIdx].GetData() + RandomDataBOffset));
+		else
+			RandomDataShorts.Add(nullptr);
+	}
+	FMW6XAnimBufferState State;
+	State.OffsetCount = AnimHeader.DataInfo.OffsetCount;
+	State.PackedPerFrameInfo = AnimPackedInfo;
+
+	int32 CurrentBoneIndex = 0;
+	int32 CurrentSize = InAnim.NoneRotatedBoneCount;
+	bool ByteFrames = InAnim.FrameCount < 0x100;
+
+	while (CurrentBoneIndex < CurrentSize)
+	{
+		OutAnim.AddRotationKey(InAnim.Reader.BoneNames[CurrentBoneIndex++], 0, FVector4(0, 0, 0, 1));
+	}
+	CurrentSize += InAnim.TwoDRotatedBoneCount;
+	// 2D Bones
+	while (CurrentBoneIndex < CurrentSize)
+	{
+		int16 TableSize = *DataShort++;
+
+		if ((TableSize >= 0x40) && !ByteFrames)
+			DataShort += ((TableSize - 1) >> 8) + 2;
+
+		for (int16 Idx = 0; Idx <= TableSize; ++Idx)
+		{
+			uint32 Frame = 0;
+			if (ByteFrames)
+			{
+				Frame = *DataByte++;
+			}
+			else
+			{
+				Frame = TableSize >= 0x40 ? *Indices++ : *DataShort++;
+			}
+			MW6XAnimCalculateBufferIndex(State, TableSize + 1, Idx);
+			int16* RandomDataShort = RandomDataShorts[State.BufferIndex] + 2 * State.BufferOffset;
+			float RZ = (float)RandomDataShort[0] * 0.000030518509f;
+			float RW = (float)RandomDataShort[1] * 0.000030518509f;
+
+			OutAnim.AddRotationKey(InAnim.Reader.BoneNames[CurrentBoneIndex], Frame, FVector4(0, 0, RZ, RW));
+		}
+		MW6XAnimIncrementBuffers(State, TableSize + 1, 2, RandomDataShorts);
+		CurrentBoneIndex++;
+	}
+
+	CurrentSize += InAnim.NormalRotatedBoneCount;
+	// 3D Rotations
+	while (CurrentBoneIndex < CurrentSize)
+	{
+		int16 TableSize = *DataShort++;
+		if ((TableSize >= 0x40) && !ByteFrames)
+			DataShort += ((TableSize - 1) >> 8) + 2;
+		for (int32 i = 0; i < TableSize + 1; ++i)
+		{
+			uint32 Frame = 0;
+			if (ByteFrames)
+			{
+				Frame = *DataByte++;
+			}
+			else
+			{
+				Frame = TableSize >= 0x40 ? *Indices++ : *DataShort++;
+			}
+			MW6XAnimCalculateBufferIndex(State, TableSize + 1, i);
+
+			int16* RandomDataShort = RandomDataShorts[State.BufferIndex] + 4 * State.BufferOffset;
+			float RX = (float)RandomDataShort[0] * 0.000030518509f;
+			float RY = (float)RandomDataShort[1] * 0.000030518509f;
+			float RZ = (float)RandomDataShort[2] * 0.000030518509f;
+			float RW = (float)RandomDataShort[3] * 0.000030518509f;
+
+			OutAnim.AddRotationKey(InAnim.Reader.BoneNames[CurrentBoneIndex], Frame, FVector4(RX, RY, RZ, RW));
+		}
+		MW6XAnimIncrementBuffers(State, TableSize + 1, 4, RandomDataShorts);
+		CurrentBoneIndex++;
+	}
+
+	CurrentSize += InAnim.TwoDStaticRotatedBoneCount;
+	// 2D Static Rotations
+	while (CurrentBoneIndex < CurrentSize)
+	{
+		float RZ = (float)*DataShort++ * 0.000030518509f;
+		float RW = (float)*DataShort++ * 0.000030518509f;
+
+		OutAnim.AddRotationKey(InAnim.Reader.BoneNames[CurrentBoneIndex++], 0, FVector4(0, 0, RZ, RW));
+	}
+	CurrentSize += InAnim.NormalStaticRotatedBoneCount;
+	// 3D Static Rotations
+	while (CurrentBoneIndex < CurrentSize)
+	{
+		float RX = (float)*DataShort++ * 0.000030518509f;
+		float RY = (float)*DataShort++ * 0.000030518509f;
+		float RZ = (float)*DataShort++ * 0.000030518509f;
+		float RW = (float)*DataShort++ * 0.000030518509f;
+
+		OutAnim.AddRotationKey(InAnim.Reader.BoneNames[CurrentBoneIndex++], 0, FVector4(RX, RY, RZ, RW));
+	}
+
+	CurrentBoneIndex = 0;
+	CurrentSize = InAnim.NormalTranslatedBoneCount;
+	while (CurrentBoneIndex++ < CurrentSize)
+	{
+		int16 BoneIndex = *DataShort++;
+		int16 TableSize = *DataShort++;
+		if ((TableSize >= 0x40) && !ByteFrames)
+			DataShort += ((TableSize - 1) >> 8) + 2;
+		float MinsVecX = *(float*)DataInt++;
+		float MinsVecY = *(float*)DataInt++;
+		float MinsVecZ = *(float*)DataInt++;
+		float FrameVecX = *(float*)DataInt++;
+		float FrameVecY = *(float*)DataInt++;
+		float FrameVecZ = *(float*)DataInt++;
+		for (int32 i = 0; i <= TableSize; ++i)
+		{
+			int32 Frame = 0;
+			if (ByteFrames)
+			{
+				Frame = *DataByte++;
+			}
+			else
+			{
+				Frame = TableSize >= 0x40 ? *Indices++ : *DataShort++;
+			}
+			MW6XAnimCalculateBufferIndex(State, TableSize + 1, i);
+
+			uint8* RandomDataByte = RandomDataBytes[State.BufferIndex] + 3 * State.BufferOffset;
+			float TranslationX = (FrameVecX * (float)RandomDataByte[0]) + MinsVecX;
+			float TranslationY = (FrameVecY * (float)RandomDataByte[1]) + MinsVecY;
+			float TranslationZ = (FrameVecZ * (float)RandomDataByte[2]) + MinsVecZ;
+
+			OutAnim.AddTranslationKey(InAnim.Reader.BoneNames[BoneIndex], Frame,
+			                          FVector(TranslationX, TranslationY, TranslationZ));
+		}
+		MW6XAnimIncrementBuffers(State, TableSize + 1, 3, RandomDataBytes);
+	}
+	CurrentBoneIndex = 0;
+	CurrentSize = InAnim.PreciseTranslatedBoneCount;
+	while (CurrentBoneIndex++ < CurrentSize)
+	{
+		int16 BoneIndex = *DataShort++;
+		int16 TableSize = *DataShort++;
+
+		if ((TableSize >= 0x40) && !ByteFrames)
+			DataShort += ((TableSize - 1) >> 8) + 2;
+		float MinsVecX = *(float*)DataInt++;
+		float MinsVecY = *(float*)DataInt++;
+		float MinsVecZ = *(float*)DataInt++;
+		float FrameVecX = *(float*)DataInt++;
+		float FrameVecY = *(float*)DataInt++;
+		float FrameVecZ = *(float*)DataInt++;
+
+		for (int i = 0; i <= TableSize; ++i)
+		{
+			int Frame = 0;
+			if (ByteFrames)
+			{
+				Frame = *DataByte++;
+			}
+			else
+			{
+				Frame = TableSize >= 0x40 ? *Indices++ : *DataShort++;
+			}
+			MW6XAnimCalculateBufferIndex(State, TableSize + 1, i);
+			int16* RandomDataShort = RandomDataShorts[State.BufferIndex] + 3 * State.BufferOffset;
+
+			float TranslationX = (FrameVecX * (float)(uint16)RandomDataShort[0]) + MinsVecX;
+			float TranslationY = (FrameVecY * (float)(uint16)RandomDataShort[1]) + MinsVecY;
+			float TranslationZ = (FrameVecZ * (float)(uint16)RandomDataShort[2]) + MinsVecZ;
+
+			OutAnim.AddTranslationKey(InAnim.Reader.BoneNames[BoneIndex], Frame,
+			                          FVector(TranslationX, TranslationY, TranslationZ));
+		}
+		MW6XAnimIncrementBuffers(State, TableSize + 1, 3, RandomDataShorts);
+	}
+	CurrentBoneIndex = 0;
+	CurrentSize = InAnim.StaticTranslatedBoneCount;
+	while (CurrentBoneIndex++ < CurrentSize)
+	{
+		FVector3f Vec = *(FVector3f*)DataInt;
+		DataInt += 3;
+		int16 BoneIndex = *DataShort++;
+
+		OutAnim.AddTranslationKey(InAnim.Reader.BoneNames[BoneIndex], 0, FVector(Vec));
+	}
+}
+
+void FModernWarfare6AssetHandler::MW6XAnimCalculateBufferIndex(FMW6XAnimBufferState& AnimState, const int32 TableSize,
+                                                               const int32 KeyFrameIndex)
+{
+	if (TableSize < 4 || AnimState.OffsetCount == 1)
+	{
+		AnimState.BufferIndex = 0;
+		AnimState.BufferOffset = KeyFrameIndex;
+	}
+	else
+	{
+		for (int32 i = 0; i < AnimState.OffsetCount; ++i)
+		{
+			if (((0x80000000 >> ((KeyFrameIndex + (i * TableSize) + AnimState.PackedPerFrameOffset) & 0x1F)) &
+					AnimState.PackedPerFrameInfo[(KeyFrameIndex + (i * TableSize) + AnimState.PackedPerFrameOffset) >>
+						5])
+				!= 0)
+			{
+				AnimState.BufferIndex = i;
+				AnimState.BufferOffset = MW6XAnimCalculateBufferOffset(
+					AnimState, AnimState.PackedPerFrameOffset + TableSize * AnimState.BufferIndex, KeyFrameIndex);
+				return;
+			}
+		}
+	}
+}
+
+int32 FModernWarfare6AssetHandler::MW6XAnimCalculateBufferOffset(const FMW6XAnimBufferState& AnimState,
+                                                                 const int32 Index, const int32 Count)
+{
+	if (Count == 0)
+		return 0;
+
+	int32 Mask = Index + Count - 1;
+	int32 Start = Index >> 5;
+	int32 End = Mask >> 5;
+	int32 Result = 0;
+
+	for (int32 i = Start; i <= End; i++)
+	{
+		if (AnimState.PackedPerFrameInfo[i] == 0)
+			continue;
+
+		uint32 maskA = 0xFFFFFFFF;
+		uint32 maskB = 0xFFFFFFFF;
+
+		if (i == Start)
+			maskA = 0xFFFFFFFF >> (Index & 0x1F);
+		if (i == End)
+			maskB = 0xFFFFFFFF << (31 - (Mask & 0x1F));
+
+		Result += FPlatformMath::CountBits(AnimState.PackedPerFrameInfo[i] & maskA & maskB);
+	}
+
+	return Result;
+}
+
+void FModernWarfare6AssetHandler::DeltaTranslations64(FCastAnimationInfo& OutAnim, uint32 FrameSize,
+                                                      const FWraithXAnim& InAnim)
+{
+	uint64 DeltaTranslationPtr = InAnim.DeltaTranslationPtr;
+	uint16 FrameCount;
+	ReadAndAdvance(DeltaTranslationPtr, FrameCount);
+
+	uint8 DataSize;
+	// Advance 1 byte for frame size, 5 byte for padding
+	ReadAndAdvance(DeltaTranslationPtr, DataSize, 6);
+
+	FVector3f MinVec, SizeVec;
+	ReadAndAdvance(DeltaTranslationPtr, MinVec);
+	ReadAndAdvance(DeltaTranslationPtr, SizeVec);
+
+	if (!FrameCount)
+	{
+		OutAnim.AddTranslationKey(TEXT("tag_origin"), 0, FVector(MinVec.X, MinVec.Y, MinVec.Z));
+		return;
+	}
+
+	uint64 DeltaDataPtr;
+	ReadAndAdvance(DeltaTranslationPtr, DeltaDataPtr);
+
+	ProcessDeltaFramesAndAdd<FVector>(
+		OutAnim, FrameCount, FrameSize, DeltaTranslationPtr, DeltaDataPtr, InAnim,
+		[&](uint64& KeyStreamPtr, const FWraithXAnim&) -> FVector
+		{
+			float XCoord = 0.0f, YCoord = 0.0f, ZCoord = 0.0f;
+			if (DataSize == 1)
+			{
+				uint8 XCoordData, YCoordData, ZCoordData;
+				ReadAndAdvance(KeyStreamPtr, XCoordData);
+				ReadAndAdvance(KeyStreamPtr, YCoordData);
+				ReadAndAdvance(KeyStreamPtr, ZCoordData);
+				XCoord = static_cast<float>(XCoordData);
+				YCoord = static_cast<float>(YCoordData);
+				ZCoord = static_cast<float>(ZCoordData);
+			}
+			else
+			{
+				uint16 XCoordData, YCoordData, ZCoordData;
+				ReadAndAdvance(KeyStreamPtr, XCoordData);
+				ReadAndAdvance(KeyStreamPtr, YCoordData);
+				ReadAndAdvance(KeyStreamPtr, ZCoordData);
+				XCoord = static_cast<float>(XCoordData);
+				YCoord = static_cast<float>(YCoordData);
+				ZCoord = static_cast<float>(ZCoordData);
+			}
+
+			FVector Translation;
+			Translation.X = SizeVec.X * XCoord + MinVec.X;
+			Translation.Y = SizeVec.Y * YCoord + MinVec.Y;
+			Translation.Z = SizeVec.Z * ZCoord + MinVec.Z;
+			return Translation;
+		},
+		[](FCastAnimationInfo& Anim, const FString& Name, uint32 Index, FVector&& Key)
+		{
+			Anim.AddTranslationKey(Name, Index, MoveTemp(Key));
+		}
+	);
+}
+
+void FModernWarfare6AssetHandler::Delta2DRotations64(FCastAnimationInfo& OutAnim, uint32 FrameSize,
+                                                     const FWraithXAnim& InAnim)
+{
+	ProcessDeltaRotationsInternal<FQuat2Data, sizeof(FQuat2Data)>(
+		OutAnim, FrameSize, InAnim, InAnim.Delta2DRotationsPtr, ProcessRaw2DRotation
+	);
+}
+
+void FModernWarfare6AssetHandler::Delta3DRotations64(FCastAnimationInfo& OutAnim, uint32 FrameSize,
+                                                     const FWraithXAnim& InAnim)
+{
+	ProcessDeltaRotationsInternal<FQuatData, sizeof(FQuatData)>(
+		OutAnim, FrameSize, InAnim, InAnim.Delta3DRotationsPtr, ProcessRaw3DRotation
+	);
+}
+
+FVector4 FModernWarfare6AssetHandler::ProcessRaw2DRotation(const FQuat2Data& RawRotData, const FWraithXAnim& InAnim)
+{
+	if (InAnim.RotationType == EAnimationKeyTypes::DivideBySize)
+	{
+		return FVector4{
+			0.0f,
+			0.0f,
+			(static_cast<float>(RawRotData.RotationZ) / 32768.f),
+			(static_cast<float>(RawRotData.RotationW) / 32768.f)
+		};
+	}
+	if (InAnim.RotationType == EAnimationKeyTypes::HalfFloat)
+	{
+		return FVector4{
+			0.0f,
+			0.0f,
+			HalfFloatHelper::ToFloat(RawRotData.RotationZ),
+			HalfFloatHelper::ToFloat(RawRotData.RotationW)
+		};
+	}
+	if (InAnim.RotationType == EAnimationKeyTypes::QuatPackingA)
+	{
+		return VectorPacking::QuatPacking2DA(*reinterpret_cast<const uint32*>(&RawRotData));
+	}
+	return FVector4::Zero();
+}
+
+FVector4 FModernWarfare6AssetHandler::ProcessRaw3DRotation(const FQuatData& RawRotData, const FWraithXAnim& InAnim)
+{
+	if (InAnim.RotationType == EAnimationKeyTypes::DivideBySize)
+	{
+		return FVector4{
+			(static_cast<float>(RawRotData.RotationX) / 32768.f),
+			(static_cast<float>(RawRotData.RotationY) / 32768.f),
+			(static_cast<float>(RawRotData.RotationZ) / 32768.f),
+			(static_cast<float>(RawRotData.RotationW) / 32768.f)
+		};
+	}
+	if (InAnim.RotationType == EAnimationKeyTypes::HalfFloat)
+	{
+		return FVector4{
+			HalfFloatHelper::ToFloat(RawRotData.RotationX),
+			HalfFloatHelper::ToFloat(RawRotData.RotationY),
+			HalfFloatHelper::ToFloat(RawRotData.RotationZ),
+			HalfFloatHelper::ToFloat(RawRotData.RotationW)
+		};
+	}
+	if (InAnim.RotationType == EAnimationKeyTypes::QuatPackingA)
+	{
+		return VectorPacking::QuatPackingA(*reinterpret_cast<const uint64*>(&RawRotData));
+	}
+	return FVector4::Zero();
+}
+
+uint32 FModernWarfare6AssetHandler::ReadFrameIndexData(uint64& Ptr, uint32 FrameSize)
+{
+	uint32 FrameIndex = 0;
+	if (FrameSize == 1)
+	{
+		uint8 FrameIdxData;
+		ReadAndAdvance(Ptr, FrameIdxData);
+		FrameIndex = FrameIdxData;
+	}
+	else if (FrameSize == 2)
+	{
+		uint16 FrameIdxData;
+		ReadAndAdvance(Ptr, FrameIdxData);
+		FrameIndex = FrameIdxData;
+	}
+	return FrameIndex;
 }

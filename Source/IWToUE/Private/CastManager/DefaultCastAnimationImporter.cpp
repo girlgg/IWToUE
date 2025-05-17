@@ -18,50 +18,132 @@ UAnimSequence* FDefaultCastAnimationImporter::ImportAnimation(const FCastAnimati
 		       *Name.ToString());
 		return nullptr;
 	}
-
-	FScopedSlowTask SlowTask(100, FText::Format(
-		                         NSLOCTEXT("CastImporter", "ImportingAnimation", "Importing Animation {0}..."),
-		                         FText::FromName(Name)));
-	SlowTask.MakeDialog();
-
-	FString AnimName = NoIllegalSigns(Name.ToString());
-	FString ParentPackagePath = InParent->GetPathName();
-
-	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "Anim_CreateAsset", "Creating Asset..."));
-	UAnimSequence* AnimSequence = CreateAsset<UAnimSequence>(ParentPackagePath, AnimName, true);
-
-	if (!AnimSequence)
+	if (!InParent)
 	{
-		UE_LOG(LogCast, Error, TEXT("Failed to create UAnimSequence asset object: %s"), *AnimName);
+		UE_LOG(LogCast, Error, TEXT("ImportAnimation: InParent is null for %s."), *Name.ToString());
 		return nullptr;
 	}
 
-	AnimSequence->SetSkeleton(Skeleton);
-	AnimSequence->Modify();
+	FString AnimNameStr = NoIllegalSigns(Name.ToString());
 
-	SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "Anim_InitController", "Initializing Controller..."));
-	IAnimationDataController& Controller = AnimSequence->GetController();
 	uint32 NumFrames = CalculateNumberOfFrames(AnimInfo);
-	InitializeAnimationController(Controller, AnimInfo, NumFrames);
-
-	SlowTask.EnterProgressFrame(40, NSLOCTEXT("CastImporter", "Anim_ExtractCurves",
-	                                          "Extracting & Interpolating Curves..."));
-	TMap<FString, FInterpolatedBoneCurve> BoneCurves = ExtractAndInterpolateCurves(
+	TMap<FString, FInterpolatedBoneCurve> InterpolatedCurves = ExtractAndInterpolateCurves(
 		Skeleton, AnimInfo, NumFrames, Options.bDeleteRootNodeAnim);
-
-	SlowTask.EnterProgressFrame(35, NSLOCTEXT("CastImporter", "Anim_PopulateTracks", "Populating Bone Tracks..."));
-	PopulateBoneTracks(Controller, BoneCurves, Options, Skeleton, NumFrames);
-
-	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "Anim_AddNotifies", "Adding Notifies..."));
+	TArray<FPreparedBoneTrack> PreparedBoneTracks = PrepareBoneTrackData(
+		Skeleton, InterpolatedCurves, Options, NumFrames);
+	TArray<FPreparedNotify> PreparedNotifies;
 	if (Options.bImportAnimationNotify && !AnimInfo.NotificationTracks.IsEmpty())
 	{
-		AddAnimationNotifies(AnimSequence, AnimInfo);
+		PreparedNotifies = PrepareAnimationNotifies(AnimInfo);
 	}
 
-	SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "Anim_Finalize", "Finalizing..."));
-	FinalizeController(Controller, AnimSequence);
+	if (IsInGameThread())
+	{
+		FScopedSlowTask SlowTask(100, FText::Format(
+			                         NSLOCTEXT("CastImporter", "ImportingAnimationGT",
+			                                   "Importing Animation {0} (GT)..."),
+			                         FText::FromName(Name)));
+		SlowTask.MakeDialog();
 
-	return AnimSequence;
+		FString CurrentThreadParentPackagePath = InParent->GetPathName();
+
+		SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "Anim_CreateAsset_GT", "Creating Asset (GT)..."));
+		UAnimSequence* AnimSequence = CreateAsset<UAnimSequence>(CurrentThreadParentPackagePath, AnimNameStr,
+		                                                         true /*bAllowReplace*/);
+
+		if (!AnimSequence)
+		{
+			UE_LOG(LogCast, Error, TEXT("ImportAnimation (GT): Failed to create UAnimSequence asset: %s"),
+			       *AnimNameStr);
+			return nullptr;
+		}
+		AnimSequence->SetSkeleton(Skeleton);
+		AnimSequence->Modify();
+
+		SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "Anim_InitController_GT",
+		                                          "Initializing Controller (GT)..."));
+		IAnimationDataController& Controller = AnimSequence->GetController();
+		InitializeAnimationController(Controller, AnimInfo, NumFrames);
+
+		SlowTask.EnterProgressFrame(60, NSLOCTEXT("CastImporter", "Anim_PopulateTracks_GT",
+		                                          "Populating Bone Tracks (GT)..."));
+		PopulateBoneTracks(Controller, PreparedBoneTracks);
+
+		SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "Anim_AddNotifies_GT", "Adding Notifies (GT)..."));
+		if (Options.bImportAnimationNotify && !PreparedNotifies.IsEmpty())
+		{
+			AddAnimationNotifies(AnimSequence, PreparedNotifies);
+		}
+
+		SlowTask.EnterProgressFrame(15, NSLOCTEXT("CastImporter", "Anim_Finalize_GT", "Finalizing (GT)..."));
+		FinalizeController(Controller, AnimSequence);
+
+		return AnimSequence;
+	}
+	TPromise<UAnimSequence*> Promise;
+	TFuture<UAnimSequence*> Future = Promise.GetFuture();
+
+	AsyncTask(ENamedThreads::GameThread,
+	          [this,
+		          LocalAnimInfo = AnimInfo,
+		          LocalOptions = Options,
+		          LocalSkeleton = Skeleton,
+		          LocalInParent = InParent,
+		          LocalName = Name,
+		          LocalAnimNameStr = AnimNameStr,
+		          LocalFlags = Flags,
+		          LocalNumFrames = NumFrames,
+		          LocalPreparedBoneTracks = MoveTemp(PreparedBoneTracks),
+		          LocalPreparedNotifies = MoveTemp(PreparedNotifies),
+		          Promise = MoveTemp(Promise)]() mutable
+	          {
+		          FScopedSlowTask SlowTask(100, FText::Format(
+			                                   NSLOCTEXT("CastImporter", "ImportingAnimationGT_Async",
+			                                             "Importing Animation {0} (GT Task)..."),
+			                                   FText::FromName(LocalName)));
+		          SlowTask.MakeDialog();
+
+		          FString GameThreadParentPackagePath = LocalInParent->GetPathName();
+
+		          SlowTask.EnterProgressFrame(5, NSLOCTEXT("CastImporter", "Anim_CreateAsset_GT_Async",
+		                                                   "Creating Asset..."));
+		          UAnimSequence* AnimSequence = CreateAsset<UAnimSequence>(
+			          GameThreadParentPackagePath, LocalAnimNameStr, true);
+
+		          if (!AnimSequence)
+		          {
+			          UE_LOG(LogCast, Error,
+			                 TEXT("ImportAnimation (GT Task): Failed to create UAnimSequence asset: %s"),
+			                 *LocalAnimNameStr);
+			          Promise.SetValue(nullptr);
+			          return;
+		          }
+		          AnimSequence->SetSkeleton(LocalSkeleton);
+		          AnimSequence->Modify();
+
+		          SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "Anim_InitController_GT_Async",
+		                                                    "Initializing Controller..."));
+		          IAnimationDataController& Controller = AnimSequence->GetController();
+		          InitializeAnimationController(Controller, LocalAnimInfo, LocalNumFrames);
+
+		          SlowTask.EnterProgressFrame(60, NSLOCTEXT("CastImporter", "Anim_PopulateTracks_GT_Async",
+		                                                    "Populating Bone Tracks..."));
+		          PopulateBoneTracks(Controller, LocalPreparedBoneTracks);
+
+		          SlowTask.EnterProgressFrame(10, NSLOCTEXT("CastImporter", "Anim_AddNotifies_GT_Async",
+		                                                    "Adding Notifies..."));
+		          if (LocalOptions.bImportAnimationNotify && !LocalPreparedNotifies.IsEmpty())
+		          {
+			          AddAnimationNotifies(AnimSequence, LocalPreparedNotifies);
+		          }
+
+		          SlowTask.EnterProgressFrame(15, NSLOCTEXT("CastImporter", "Anim_Finalize_GT_Async", "Finalizing..."));
+		          FinalizeController(Controller, AnimSequence);
+
+		          Promise.SetValue(AnimSequence);
+	          });
+
+	return Future.Get();
 }
 
 void FDefaultCastAnimationImporter::FInterpolatedBoneCurve::PadToLength(uint32 Length, FVector3f DefaultPos,
@@ -87,6 +169,76 @@ void FDefaultCastAnimationImporter::FInterpolatedBoneCurve::PadToLength(uint32 L
 	PadFloat(ScaleZ, DefaultScale.Z);
 }
 
+TArray<FDefaultCastAnimationImporter::FPreparedBoneTrack> FDefaultCastAnimationImporter::PrepareBoneTrackData(
+	const USkeleton* Skeleton, const TMap<FString, FInterpolatedBoneCurve>& BoneCurves,
+	const FCastImportOptions& Options, uint32 NumberOfFrames) const
+{
+	TArray<FPreparedBoneTrack> PreparedTracks;
+	if (!Skeleton) return PreparedTracks;
+
+	const FReferenceSkeleton& RefSkeleton = Skeleton->GetReferenceSkeleton();
+	for (const auto& Pair : BoneCurves)
+	{
+		const FString& BoneNameStr = Pair.Key;
+		const FInterpolatedBoneCurve& CurveData = Pair.Value;
+		FName BoneName = FName(*BoneNameStr);
+		int32 BoneIndex = RefSkeleton.FindBoneIndex(BoneName);
+		if (BoneIndex == INDEX_NONE) continue;
+
+		FTransform RefPoseTransform = RefSkeleton.GetRefBonePose()[BoneIndex];
+		FVector3f DefaultPos = (FVector3f)RefPoseTransform.GetLocation();
+		FQuat4f DefaultRot = (FQuat4f)RefPoseTransform.GetRotation();
+		FVector3f DefaultScale = (FVector3f)RefPoseTransform.GetScale3D();
+
+		FInterpolatedBoneCurve MutableCurveData = CurveData;
+		MutableCurveData.PadToLength(NumberOfFrames, DefaultPos, DefaultRot, DefaultScale);
+
+		FPreparedBoneTrack PreparedTrack;
+		PreparedTrack.BoneName = BoneName;
+		PreparedTrack.Positions.SetNumUninitialized(NumberOfFrames);
+		PreparedTrack.Rotations.SetNumUninitialized(NumberOfFrames);
+		PreparedTrack.Scales.SetNumUninitialized(NumberOfFrames);
+
+		for (uint32 Frame = 0; Frame < NumberOfFrames; ++Frame)
+		{
+			FVector3f FramePos(MutableCurveData.PositionX[Frame], -MutableCurveData.PositionY[Frame],
+			                   MutableCurveData.PositionZ[Frame]);
+			if (Options.bConvertRefPosition) FramePos += DefaultPos;
+			PreparedTrack.Positions[Frame] = FramePos;
+
+			FQuat4f FrameRot = MutableCurveData.Rotation[Frame];
+			if (Options.bConvertRefAnim) FrameRot = DefaultRot * FrameRot;
+			PreparedTrack.Rotations[Frame] = FrameRot.GetNormalized();
+
+			FVector3f FrameScale(MutableCurveData.ScaleX[Frame], MutableCurveData.ScaleY[Frame],
+			                     MutableCurveData.ScaleZ[Frame]);
+			PreparedTrack.Scales[Frame] = FrameScale;
+		}
+		PreparedTracks.Add(MoveTemp(PreparedTrack));
+	}
+	return PreparedTracks;
+}
+
+TArray<FDefaultCastAnimationImporter::FPreparedNotify> FDefaultCastAnimationImporter::PrepareAnimationNotifies(
+	const FCastAnimationInfo& Animation) const
+{
+	TArray<FPreparedNotify> AllPreparedNotifies;
+	float FrameRate = FMath::Max(1.0f, Animation.Framerate);
+	for (const FCastNotificationTrackInfo& NotifyTrack : Animation.NotificationTracks)
+	{
+		if (NotifyTrack.Name.IsEmpty() || NotifyTrack.KeyFrameBuffer.IsEmpty()) continue;
+		FName NotifyNameFName = FName(*NotifyTrack.Name);
+		for (uint32 Frame : NotifyTrack.KeyFrameBuffer)
+		{
+			FPreparedNotify Prepared;
+			Prepared.NotifyName = NotifyNameFName;
+			Prepared.Time = (float)Frame / FrameRate;
+			AllPreparedNotifies.Add(Prepared);
+		}
+	}
+	return AllPreparedNotifies;
+}
+
 void FDefaultCastAnimationImporter::InitializeAnimationController(IAnimationDataController& Controller,
                                                                   const FCastAnimationInfo& Animation,
                                                                   uint32 NumberOfFrames)
@@ -107,11 +259,10 @@ uint32 FDefaultCastAnimationImporter::CalculateNumberOfFrames(const FCastAnimati
 	{
 		if (!Curve.KeyFrameBuffer.IsEmpty())
 		{
-			MaxFrame = FMath::Max(MaxFrame, Curve.KeyFrameBuffer.Last() + 1); // Frame count is last frame index + 1
+			MaxFrame = FMath::Max(MaxFrame, Curve.KeyFrameBuffer.Last() + 1);
 		}
 	}
-	if (MaxFrame == 0) MaxFrame = 1;
-	return MaxFrame;
+	return MaxFrame == 0 ? 1u : MaxFrame;
 }
 
 TMap<FString, FDefaultCastAnimationImporter::FInterpolatedBoneCurve> FDefaultCastAnimationImporter::
@@ -141,129 +292,39 @@ ExtractAndInterpolateCurves(const USkeleton* Skeleton, const FCastAnimationInfo&
 }
 
 void FDefaultCastAnimationImporter::PopulateBoneTracks(IAnimationDataController& Controller,
-                                                       const TMap<FString, FInterpolatedBoneCurve>& BoneCurves,
-                                                       const FCastImportOptions& Options,
-                                                       const USkeleton* Skeleton, uint32 NumberOfFrames)
+                                                       const TArray<FPreparedBoneTrack>& PreparedTracks)
 {
-	const FReferenceSkeleton& RefSkeleton = Skeleton->GetReferenceSkeleton();
-
-	for (const auto& Pair : BoneCurves)
+	check(IsInGameThread());
+	for (const FPreparedBoneTrack& TrackData : PreparedTracks)
 	{
-		const FString& BoneNameStr = Pair.Key;
-		const FInterpolatedBoneCurve& CurveData = Pair.Value;
-		FName BoneName = FName(*BoneNameStr);
-
-		int32 BoneIndex = RefSkeleton.FindBoneIndex(BoneName);
-		if (BoneIndex == INDEX_NONE)
-		{
-			UE_LOG(LogCast, Warning, TEXT("Animated bone '%s' not found in Skeleton '%s'. Skipping track."),
-			       *BoneNameStr, *Skeleton->GetName());
-			continue;
-		}
-
-		// Get reference pose transform
-		FTransform RefPoseTransform = RefSkeleton.GetRefBonePose()[BoneIndex];
-		FVector3f DefaultPos = (FVector3f)RefPoseTransform.GetLocation();
-		FQuat4f DefaultRot = (FQuat4f)RefPoseTransform.GetRotation();
-		FVector3f DefaultScale = (FVector3f)RefPoseTransform.GetScale3D();
-
-
-		// Create temporary arrays to hold final key data for this bone
-		TArray<FVector3f> FinalPositions;
-		FinalPositions.SetNumUninitialized(NumberOfFrames);
-		TArray<FQuat4f> FinalRotations;
-		FinalRotations.SetNumUninitialized(NumberOfFrames);
-		TArray<FVector3f> FinalScales;
-		FinalScales.SetNumUninitialized(NumberOfFrames);
-
-		// Pad interpolated data to full length if some curves were missing
-		// This requires modifying the const Value - maybe clone it first?
-		FInterpolatedBoneCurve MutableCurveData = CurveData; // Clone
-		MutableCurveData.PadToLength(NumberOfFrames, DefaultPos, DefaultRot, DefaultScale);
-
-
-		// Process frame by frame
-		for (uint32 Frame = 0; Frame < NumberOfFrames; ++Frame)
-		{
-			// --- Position ---
-			FVector3f FramePos(MutableCurveData.PositionX[Frame], -MutableCurveData.PositionY[Frame],
-			                   MutableCurveData.PositionZ[Frame]); // Apply coord flip
-			if (Options.bConvertRefPosition) // Add ref pose position if requested
-			{
-				FramePos += DefaultPos;
-			}
-			FinalPositions[Frame] = FramePos;
-
-			// --- Rotation ---
-			FQuat4f FrameRot = MutableCurveData.Rotation[Frame]; // Already flipped during interpolation
-			if (Options.bConvertRefAnim) // Apply ref pose rotation if requested (Pre-multiply: Ref * Anim)
-			{
-				FrameRot = DefaultRot * FrameRot;
-			}
-			FinalRotations[Frame] = FrameRot.GetNormalized();
-
-			// --- Scale ---
-			FVector3f FrameScale(MutableCurveData.ScaleX[Frame], MutableCurveData.ScaleY[Frame],
-			                     MutableCurveData.ScaleZ[Frame]);
-			// Scaling is usually absolute, rarely added to ref pose scale. Check if needed.
-			// if (Options.bConvertRefScale) FrameScale *= DefaultScale;
-			FinalScales[Frame] = FrameScale;
-		}
-
-
-		// Add bone curve if needed (or assume it's added elsewhere)
-		// if (!Controller.IsBoneTrackExisting(BoneName))
-		{
-			Controller.AddBoneCurve(BoneName, false); // Add if missing
-		}
-
-		// Set the keys for the entire track
-		Controller.SetBoneTrackKeys(BoneName, FinalPositions, FinalRotations, FinalScales, false);
-
-		UE_LOG(LogCast, Verbose, TEXT("Populated bone track for '%s' with %d frames."), *BoneNameStr, NumberOfFrames);
+		Controller.AddBoneCurve(TrackData.BoneName, false);
+		Controller.SetBoneTrackKeys(TrackData.BoneName, TrackData.Positions, TrackData.Rotations, TrackData.Scales,
+		                            false);
 	}
 }
 
-void FDefaultCastAnimationImporter::AddAnimationNotifies(UAnimSequence* DestSeq, const FCastAnimationInfo& Animation)
+void FDefaultCastAnimationImporter::AddAnimationNotifies(UAnimSequence* DestSeq,
+                                                         const TArray<FPreparedNotify>& PreparedNotifies)
 {
-	if (!DestSeq) return;
-
-	DestSeq->Modify(); // Mark for modification
-	// Consider clearing existing notifies: DestSeq->Notifies.Empty();
-
-	float FrameRate = FMath::Max(1.0f, Animation.Framerate);
-
-	for (const FCastNotificationTrackInfo& NotifyTrack : Animation.NotificationTracks)
+	check(IsInGameThread());
+	if (!DestSeq || PreparedNotifies.IsEmpty()) return;
+	DestSeq->Modify();
+	for (const FPreparedNotify& Prepared : PreparedNotifies)
 	{
-		if (NotifyTrack.Name.IsEmpty() || NotifyTrack.KeyFrameBuffer.IsEmpty()) continue;
-
-		FName NotifyName = FName(*NotifyTrack.Name); // Convert string to FName
-
-		for (uint32 Frame : NotifyTrack.KeyFrameBuffer)
-		{
-			FAnimNotifyEvent NewEvent;
-			NewEvent.NotifyName = NotifyName; // Use the FName
-			NewEvent.SetTime((float)Frame / FrameRate);
-			// NewEvent.LinkSequence(DestSeq); // Link to sequence
-			// Set other properties if needed (TriggerTimeOffset, etc.)
-
-			DestSeq->Notifies.Add(NewEvent);
-			UE_LOG(LogCast, Verbose, TEXT("Added notify '%s' at frame %d (time %f)"), *NotifyTrack.Name, Frame,
-			       NewEvent.GetTime());
-		}
+		FAnimNotifyEvent NewEvent;
+		NewEvent.NotifyName = Prepared.NotifyName;
+		NewEvent.SetTime(Prepared.Time);
+		DestSeq->Notifies.Add(NewEvent);
 	}
-
-	// Refresh notifies if needed (usually handled by PostEditChange)
-	// DestSeq->RefreshCacheData();
 }
 
 void FDefaultCastAnimationImporter::FinalizeController(IAnimationDataController& Controller, UAnimSequence* DestSeq)
 {
-	Controller.NotifyPopulated(); // Signal that data population is complete
-	Controller.CloseBracket(); // Close the transaction bracket opened in Initialize
+	Controller.NotifyPopulated();
+	Controller.CloseBracket();
 
-	DestSeq->PostEditChange(); // Trigger updates after modifications
+	DestSeq->PostEditChange();
 	DestSeq->MarkPackageDirty();
-	FAssetRegistryModule::AssetCreated(DestSeq); // Ensure registry knows about it
+	FAssetRegistryModule::AssetCreated(DestSeq);
 	UE_LOG(LogCast, Log, TEXT("Finalized animation import for: %s"), *DestSeq->GetName());
 }

@@ -1,7 +1,7 @@
 ﻿#pragma once
+#include "CastNode.h"
 
 struct FCastRoot;
-class FCastNode;
 
 struct FCastWeightsData
 {
@@ -43,7 +43,7 @@ struct FCastMeshInfo
 	TArray<FVector3f> VertexNormals{};
 	TArray<FVector3f> VertexTangents{};
 	TArray<uint32> VertexColor{};
-	TArray<FVector2f> VertexUV{};
+	TArray<TArray<FVector2f>> VertexUVs{};
 	TArray<FCastWeightsData> VertexWeights;
 	TArray<uint32> VertexWeightBone{};
 	TArray<float> VertexWeightValue{};

@@ -130,7 +130,8 @@ protected:
 
 		uint16 VertexCount = GfxSurface.VertexCount; // 顶点数
 
-		Mesh.Mesh.VertexUV.Reserve(VertexCount);
+		Mesh.Mesh.VertexUVs.SetNum(1);
+		Mesh.Mesh.VertexUVs[0].Reserve(VertexCount);
 		Mesh.Mesh.VertexPositions.Reserve(VertexCount);
 		Mesh.Mesh.VertexNormals.Reserve(VertexCount);
 		Mesh.Mesh.VertexTangents.Reserve(VertexCount);
@@ -156,7 +157,7 @@ protected:
 			Mesh.Mesh.VertexNormals.Add(Normal);
 
 			FVector2f UV = Process->ReadMemory<FVector2f>(TexCoordPtr);
-			Mesh.Mesh.VertexUV.Add(UV);
+			Mesh.Mesh.VertexUVs[0].Add(UV);
 			TexCoordPtr += 8;
 
 			for (uint32 LayerIdx = 1; LayerIdx < UgbSurfData.LayerCount; LayerIdx++)
@@ -504,7 +505,7 @@ protected:
 			FFloat16 HalfFloatV;
 			HalfFloatV.Encoded = HalfUvV;
 			float UvV = HalfFloatV;
-			Mesh.VertexUV.Add(FVector2f(UvU, UvV));
+			Mesh.VertexUVs[0].Add(FVector2f(UvU, UvV));
 		}
 
 		if (GetColorOffset(Surface) != 0xFFFFFFFF)
@@ -530,7 +531,7 @@ protected:
 				FFloat16 HalfFloatV;
 				HalfFloatV.Encoded = HalfUvV;
 				float UvV = HalfFloatV;
-				Mesh.VertexUV.Add(FVector2f(UvU, UvV));
+				Mesh.VertexUVs[0].Add(FVector2f(UvU, UvV));
 				// TODO Second UV
 			}
 		}

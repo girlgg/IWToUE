@@ -231,7 +231,10 @@ void FGameProcess::HandleAssetDiscovered(TSharedPtr<FCoDAsset> DiscoveredAsset)
 
 	if (CurrentDiscoveryProgressCount > 0)
 	{
-		OnAssetLoadingProgress.Broadcast(CurrentDiscoveryProgressCount);
+		AsyncTask(ENamedThreads::GameThread, [this]()
+		{
+			OnAssetLoadingProgress.Broadcast(CurrentDiscoveryProgressCount);
+		});
 	}
 
 	if (LoadedAssets.Num() == TotalDiscoveredAssets)

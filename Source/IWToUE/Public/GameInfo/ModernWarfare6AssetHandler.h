@@ -2,6 +2,7 @@
 
 #include "Interface/IGameAssetHandler.h"
 
+struct FMW6XAnimBufferState;
 struct FMW6XModel;
 struct FCastRoot;
 
@@ -29,9 +30,6 @@ public:
 	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo,
 	                            const FCastRoot& InSceneRoot) override;
 	virtual bool TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) override;
-	virtual void ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) override;
-	virtual void ApplyDelta2DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) override;
-	virtual void ApplyDelta3DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) override;
 
 	virtual bool LoadStreamedModelData(const FWraithXModel& InModel, FWraithXModelLod& InOutLod,
 	                                   FCastModelInfo& OutModelInfo) override;
@@ -39,4 +37,48 @@ public:
 
 protected:
 	void LoadXModel(FWraithXModel& InModel, FWraithXModelLod& ModelLod, FCastModelInfo& OutModel);
+	void LoadXAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnim);
+
+	void MW6XAnimCalculateBufferIndex(FMW6XAnimBufferState& AnimState, const int32 TableSize,
+	                                  const int32 KeyFrameIndex);
+	static int32 MW6XAnimCalculateBufferOffset(const FMW6XAnimBufferState& AnimState, const int32 Index,
+	                                           const int32 Count);
+
+	void DeltaTranslations64(FCastAnimationInfo& OutAnim, uint32 FrameSize, const FWraithXAnim& InAnim);
+	void Delta2DRotations64(FCastAnimationInfo& OutAnim, uint32 FrameSize, const FWraithXAnim& InAnim);
+	void Delta3DRotations64(FCastAnimationInfo& OutAnim, uint32 FrameSize, const FWraithXAnim& InAnim);
+
+	static FVector4 ProcessRaw2DRotation(const FQuat2Data& RawRotData, const FWraithXAnim& InAnim);
+	static FVector4 ProcessRaw3DRotation(const FQuatData& RawRotData, const FWraithXAnim& InAnim);
+
+	uint32 ReadFrameIndexData(uint64& Ptr, uint32 FrameSize);
+
+	template <typename T>
+	static void MW6XAnimIncrementBuffers(FMW6XAnimBufferState& AnimState, int32 TableSize, const int32 ElemCount,
+	                                     TArray<T*>& Buffers);
+
+	template <typename T>
+	void ReadAndAdvance(uint64& Ptr, T& OutValue, size_t BytesToAdvanceOverride = 0);
+
+	template <typename TRawRotDataType, size_t TRawRotDataSizeBytes>
+	void ProcessDeltaRotationsInternal(
+		FCastAnimationInfo& OutAnim,
+		uint32 FrameSize,
+		const FWraithXAnim& InAnim,
+		uint64 InitialRotationsPtr,
+		TFunctionRef<FVector4(const TRawRotDataType&, const FWraithXAnim&)> ProcessRawRotationFuncRef
+	);
+	template <typename TFinalKeyType>
+	void ProcessDeltaFramesAndAdd(
+		FCastAnimationInfo& OutAnim,
+		uint16 FrameCount,
+		uint32 FrameSize,
+		uint64& FrameIndexPtr,
+		uint64& KeyDataStreamPtr,
+		const FWraithXAnim& InAnim,
+		TFunctionRef<TFinalKeyType(uint64&, const FWraithXAnim&)> ReadAndProcessFunc,
+		TFunctionRef<void(FCastAnimationInfo&, const FString&, uint32, TFinalKeyType&&)> AddKeyFunc
+	);
 };
+
+#include "ModernWarfare6AssetHandler.inl"

@@ -1074,7 +1074,7 @@ USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshA
 								                      (Mesh.VertexColor[MeshVertexID] >> 16) & 0xFF,
 								                      (Mesh.VertexColor[MeshVertexID] >> 24) & 0xFF);
 							}
-							Wedges.UVs[0] = FVector2f(Mesh.VertexUV[MeshVertexID].X, Mesh.VertexUV[MeshVertexID].Y);
+							Wedges.UVs[0] = FVector2f(Mesh.VertexUVs[0][MeshVertexID].X, Mesh.VertexUVs[0][MeshVertexID].Y);
 							Wedges.Reserved = 0;
 
 							Triangle.TangentZ[FaceVertexID] = FVector3f{
@@ -1377,8 +1377,8 @@ void FCastImporter::BuildStaticMeshFromModel(UObject* ParentPackage, FCastRoot& 
 				                                                   (Mesh.VertexColor[i] >> 16) & 0xFF,
 				                                                   (Mesh.VertexColor[i] >> 24) & 0xFF);
 			}
-			if (Mesh.VertexUV.IsValidIndex(i))
-				VertexInstanceUVs.Set(VertexInstanceID, 0, FVector2f(Mesh.VertexUV[i].X, Mesh.VertexUV[i].Y));
+			if (Mesh.VertexUVs[0].IsValidIndex(i))
+				VertexInstanceUVs.Set(VertexInstanceID, 0, FVector2f(Mesh.VertexUVs[0][i].X, Mesh.VertexUVs[0][i].Y));
 		}
 		VertexIdOffset.Add(MeshDescription.Vertices().Num());
 	}

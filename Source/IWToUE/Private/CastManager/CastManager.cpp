@@ -440,10 +440,9 @@ void FCastManager::ProcessModelData(FCastNode& Node, FCastRoot& Root, FCastModel
 				}
 				else if (Property.PropertyName[0] == 'u')
 				{
-					// int32 ArrIdx = Property.PropertyName[1] - '0';
-					// if (Mesh.VertexUV.Num() <= ArrIdx) Mesh.VertexUV.SetNum(ArrIdx + 1);
-					// Mesh.VertexUV[ArrIdx] = Property.Vector2Array;
-					Mesh.VertexUV = Property.Vector2Array;
+					int32 ArrIdx = Property.PropertyName[1] - '0';
+					if (Mesh.VertexUVs.Num() <= ArrIdx) Mesh.VertexUVs.SetNum(ArrIdx + 1);
+					Mesh.VertexUVs[ArrIdx] = Property.Vector2Array;
 				}
 			}
 			Model.Meshes.Add(Mesh);

@@ -134,7 +134,7 @@ struct FCoDImage : FCoDAsset
 struct FCoDAnim : FCoDAsset
 {
 	// The bones
-	std::vector<std::string> BoneNames;
+	TArray<FString> BoneNames;
 	// The framerate
 	float Framerate;
 	// The number of frames

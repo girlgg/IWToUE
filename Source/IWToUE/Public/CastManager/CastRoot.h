@@ -1,8 +1,8 @@
 ﻿#pragma once
+#include "CastAnimation.h"
 
 struct FCastMaterialInfo;
 struct FCastModelLod;
-struct FCastAnimationInfo;
 struct FCastModelInfo;
 
 struct FCastInstanceInfo

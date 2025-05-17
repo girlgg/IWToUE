@@ -14,6 +14,18 @@ public:
 	                                       EObjectFlags Flags) override;
 
 private:
+	struct FPreparedBoneTrack
+	{
+		FName BoneName;
+		TArray<FVector3f> Positions;
+		TArray<FQuat4f> Rotations;
+		TArray<FVector3f> Scales;
+	};
+	struct FPreparedNotify
+	{
+		FName NotifyName;
+		float Time;
+	};
 	struct FInterpolatedBoneCurve
 	{
 		TArray<float> PositionX, PositionY, PositionZ;
@@ -21,10 +33,14 @@ private:
 		TArray<float> ScaleX, ScaleY, ScaleZ;
 		ECastAnimImportType AnimMode = ECastAnimImportType::CastAIT_Absolutely;
 
-		// Helper to ensure all tracks have the same length (NumberOfFrames)
 		void PadToLength(uint32 Length, FVector3f DefaultPos, FQuat4f DefaultRot, FVector3f DefaultScale);
 	};
 
+	TArray<FPreparedBoneTrack> PrepareBoneTrackData(const USkeleton* Skeleton,
+	                                                const TMap<FString, FInterpolatedBoneCurve>& BoneCurves,
+	                                                const FCastImportOptions& Options, uint32 NumberOfFrames) const;
+	TArray<FPreparedNotify> PrepareAnimationNotifies(const FCastAnimationInfo& Animation) const;
+	
 	void InitializeAnimationController(IAnimationDataController& Controller, const FCastAnimationInfo& Animation,
 	                                   uint32 NumberOfFrames);
 	uint32 CalculateNumberOfFrames(const FCastAnimationInfo& Animation);
@@ -32,10 +48,8 @@ private:
 	                                                                  const FCastAnimationInfo& Animation,
 	                                                                  uint32 NumberOfFrames,
 	                                                                  bool bSkipRootAnim);
-	void PopulateBoneTracks(IAnimationDataController& Controller,
-	                        const TMap<FString, FInterpolatedBoneCurve>& BoneCurves, const FCastImportOptions& Options,
-	                        const USkeleton* Skeleton, uint32 NumberOfFrames);
-	void AddAnimationNotifies(UAnimSequence* DestSeq, const FCastAnimationInfo& Animation);
+	void PopulateBoneTracks(IAnimationDataController& Controller, const TArray<FPreparedBoneTrack>& PreparedTracks);
+	void AddAnimationNotifies(UAnimSequence* DestSeq, const TArray<FPreparedNotify>& PreparedNotifies);
 	void FinalizeController(IAnimationDataController& Controller, UAnimSequence* DestSeq);
 
 	template <typename T>

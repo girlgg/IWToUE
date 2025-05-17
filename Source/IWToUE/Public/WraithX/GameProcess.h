@@ -135,7 +135,11 @@ private:
 	DWORD TargetProcessId = 0;
 	CoDAssets::FCoDGameProcess TargetProcessInfo{};
 	FString TargetProcessPath;
+
+public:
 	TSharedPtr<LocateGameInfo::FParasyteBaseState> ParasyteState;
+
+private:
 	TSharedPtr<IGameAssetDiscoverer> AssetDiscoverer;
 
 	TSharedPtr<IMemoryReader> MemoryReader;

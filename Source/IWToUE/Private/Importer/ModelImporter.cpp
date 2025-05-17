@@ -225,13 +225,10 @@ bool FModelImporter::Import(const FAssetImportContext& Context, TArray<UObject*>
 		ProgressDelegate.ExecuteIfBound(1.0f, NSLOCTEXT("ModelImporter", "Success", "Import Successful"));
 		return true;
 	}
-	else
-	{
-		UE_LOG(LogITUAssetImporter, Error, TEXT("ICastMeshImporter failed for %s."), *SanitizedAssetName);
-		ProgressDelegate.ExecuteIfBound(1.0f, NSLOCTEXT("ModelImporter", "ErrorImportFail",
-		                                                "Import Failed: Mesh Importer Error"));
-		return false;
-	}
+	UE_LOG(LogITUAssetImporter, Error, TEXT("ICastMeshImporter failed for %s."), *SanitizedAssetName);
+	ProgressDelegate.ExecuteIfBound(1.0f, NSLOCTEXT("ModelImporter", "ErrorImportFail",
+	                                                "Import Failed: Mesh Importer Error"));
+	return false;
 }
 
 UClass* FModelImporter::GetSupportedUClass() const

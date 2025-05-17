@@ -14,6 +14,7 @@
 #include "Rendering/SkeletalMeshModel.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "StaticMeshDescription.h"
+#include "Engine/SkinnedAssetCommon.h"
 
 UStaticMesh* FDefaultCastMeshImporter::ImportStaticMesh(FCastScene& CastScene,
                                                         const FCastImportOptions& Options,
@@ -983,11 +984,11 @@ bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
 				TriangleVertexInstanceIDs[Corner] = VertexInstanceID;
 
 				// Set UVs
-				if (Mesh.VertexUV.IsValidIndex(MeshLocalVertexIndex))
+				if (!Mesh.VertexUVs.IsEmpty() && Mesh.VertexUVs[0].IsValidIndex(MeshLocalVertexIndex))
 				{
 					VertexInstanceUVs.Set(VertexInstanceID, 0,
-					                      FVector2f(Mesh.VertexUV[MeshLocalVertexIndex].X,
-					                                Mesh.VertexUV[MeshLocalVertexIndex].Y));
+					                      FVector2f(Mesh.VertexUVs[0][MeshLocalVertexIndex].X,
+					                                Mesh.VertexUVs[0][MeshLocalVertexIndex].Y));
 				}
 				else
 				{
@@ -1246,10 +1247,10 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& R
 				Wedge.MatIndex = LocalMaterialIndex;
 
 				// UVs
-				if (Mesh.VertexUV.IsValidIndex(MeshLocalVertexIndex))
+				if (!Mesh.VertexUVs.IsEmpty() && Mesh.VertexUVs[0].IsValidIndex(MeshLocalVertexIndex))
 				{
-					Wedge.UVs[0] = FVector2f(Mesh.VertexUV[MeshLocalVertexIndex].X,
-					                         Mesh.VertexUV[MeshLocalVertexIndex].Y);
+					Wedge.UVs[0] = FVector2f(Mesh.VertexUVs[0][MeshLocalVertexIndex].X,
+					                         Mesh.VertexUVs[0][MeshLocalVertexIndex].Y);
 				}
 				else
 				{

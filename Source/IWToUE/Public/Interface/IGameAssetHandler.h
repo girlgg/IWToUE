@@ -22,6 +22,19 @@ class FGameProcess;
 class IGameAssetHandler
 {
 public:
+	struct FQuat2Data
+	{
+		uint16 RotationZ;
+		uint16 RotationW;
+	};
+	struct FQuatData
+	{
+		int16 RotationX;
+		int16 RotationY;
+		int16 RotationZ;
+		int16 RotationW;
+	};
+	
 	virtual ~IGameAssetHandler() = default;
 
 	// --- 读取原始资产 ---
@@ -43,9 +56,9 @@ public:
 	                            const FCastRoot& InSceneRoot) = 0;
 	virtual bool TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) = 0;
 
-	virtual void ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;
-	virtual void ApplyDelta2DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;
-	virtual void ApplyDelta3DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;
+	// virtual void ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;
+	// virtual void ApplyDelta2DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;
+	// virtual void ApplyDelta3DRotation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;
 
 	// --- 流式数据传输 ---
 

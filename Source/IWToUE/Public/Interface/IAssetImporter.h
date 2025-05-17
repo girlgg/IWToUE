@@ -66,6 +66,7 @@ struct FImportedAssetsCache
 	TMap<uint64, TWeakObjectPtr<UMaterialInterface>> ImportedMaterials;
 	/** Maps game asset pointer/hash to the imported primary model asset (Static or Skeletal). */
 	TMap<uint64, TWeakObjectPtr<UObject>> ImportedModels;
+	TMap<uint64, TWeakObjectPtr<UObject>> ImportedAnimations;
 
 	/** Set of all packages that were created or modified and need saving. */
 	TSet<UPackage*> PackagesToSave;
