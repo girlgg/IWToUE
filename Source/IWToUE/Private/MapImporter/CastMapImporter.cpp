@@ -54,15 +54,15 @@ TSharedRef<SWidget> FCastMapImporter::CreateToolbarDropdown()
 				FCanExecuteAction()),
 			NAME_None
 		);
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("CordycepButton", "Import Map From Cordycep"),
-			LOCTEXT("CordycepButtonTooltip", "Import Map From Cordycep"),
-			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateRaw(this, &FCastMapImporter::ImportMapFronCord),
-				FCanExecuteAction()),
-			NAME_None
-		);
+		// MenuBuilder.AddMenuEntry(
+		// 	LOCTEXT("CordycepButton", "Import Map From Cordycep"),
+		// 	LOCTEXT("CordycepButtonTooltip", "Import Map From Cordycep"),
+		// 	FSlateIcon(),
+		// 	FUIAction(
+		// 		FExecuteAction::CreateRaw(this, &FCastMapImporter::ImportMapFronCord),
+		// 		FCanExecuteAction()),
+		// 	NAME_None
+		// );
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("WraithXButton", "Import Assets From Cordycep"),
 			LOCTEXT("WraithXButtonTooltip", "Import Assets From Cordycep"),

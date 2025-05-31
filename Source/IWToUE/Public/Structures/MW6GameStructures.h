@@ -200,11 +200,7 @@ struct FMW6XModel
 	uint16 NumSurfs;											// 16
 	uint8 NumLods;												// 18
 	uint8 MaxLods;												// 19
-	uint8 Pad_20[33 - 20];										// 20
-	uint8 NumBones;												// 33
-	uint16 NumRootBones;										// 34
-	uint16 UnkBoneCount;										// 36
-	uint8 Pad_38[40 - 38];										// 38
+	uint8 Pad_20[40 - 20];										// 20
 	float Scale;												// 40
 	uint8 Pad_44[112 - 44];										// 44
 	uint64 BoneInfoPtr;											// 112
@@ -230,9 +226,7 @@ struct FMW6XModelLod
 	uint64 MeshPtr;
 	uint64 SurfsPtr;
 
-	float LodDistance;
-	float Pad_1;
-	float Pad_2;
+	float LodDistance[3];
 
 	uint16 NumSurfs;
 	uint16 SurfacesIndex;
@@ -273,8 +267,8 @@ struct FMW6XSurfaceShared
 
 struct FMW6XSurface
 {
-	uint16_t StatusFlag;										// 0
-	uint16_t FaceCountOld;										// 2
+	uint16 StatusFlag;										// 0
+	uint16 FaceCountOld;										// 2
 	uint16 PackedIndicesTableCount;								// 4
 	uint8 Pad_06[24 - 6];										// 6
 	uint32 VertCount;											// 24
@@ -415,7 +409,7 @@ struct FMW6SoundAsset
 	uint64 Unk13;
 };
 
-inline uint32_t GMW6DXGIFormats[52]
+inline uint32 GMW6DXGIFormats[52]
 {
 	0,
 	61,
@@ -483,4 +477,18 @@ struct FMW6XAnimBufferState
 	int32 OffsetCount = 0;
 	// The current offset within the packed buffer.
 	int32 PackedPerFrameOffset = 0;
+};
+
+struct FMW6XAnimNoteTrack
+{
+	uint32 Name;
+	float Time;
+	uint8 Padding[24];
+};
+
+struct FMW6XAnimStreamInfo
+{
+	uint64 StreamKey;
+	uint32 Size;
+	uint32 Padding;
 };

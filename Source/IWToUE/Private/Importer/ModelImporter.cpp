@@ -5,6 +5,7 @@
 #include "CastManager/DefaultCastMaterialImporter.h"
 #include "CastManager/DefaultCastMeshImporter.h"
 #include "Interface/IGameAssetHandler.h"
+#include "Translators/CoDXModelTranslator.h"
 #include "Utils/CoDAssetHelper.h"
 #include "WraithX/CoDAssetType.h"
 #include "WraithX/WraithSettings.h"
@@ -111,7 +112,8 @@ bool FModelImporter::Import(const FAssetImportContext& Context, TArray<UObject*>
 	for (int32 LodIdx = 0; LodIdx < LodCount; ++LodIdx)
 	{
 		FCastModelInfo TranslatedLodModel;
-		if (Context.GameHandler->TranslateModel(GenericModelData, LodIdx, TranslatedLodModel, SceneRoot))
+		if (FCoDXModelTranslator::TranslateModel(Context.GameHandler, GenericModelData, LodIdx, TranslatedLodModel,
+		                                         SceneRoot))
 		{
 			if (!TranslatedLodModel.Meshes.IsEmpty())
 			{
@@ -311,35 +313,45 @@ bool FModelImporter::ProcessModelDependencies(
 
 	FString MaterialBasePath;
 	const FMaterialSettingsData& MaterialSettings = Context.Settings->Material;
-	if (MaterialSettings.bUseGlobalMaterialPath && !MaterialSettings.GlobalMaterialPath.IsEmpty()) {
-        MaterialBasePath = FPaths::Combine(Context.BaseImportPath, MaterialSettings.GlobalMaterialPath);
-        UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using GLOBAL material path: %s"), *InOutModelData.ModelName, *MaterialBasePath);
-    } else {
-        FString ModelRelativeDir = Context.Settings->Model.ExportDirectory;
-        if (ModelRelativeDir.IsEmpty()) ModelRelativeDir = TEXT("Models");
-        FString ModelBaseDir = FPaths::Combine(Context.BaseImportPath, ModelRelativeDir, InOutModelData.ModelName);
+	if (MaterialSettings.bUseGlobalMaterialPath && !MaterialSettings.GlobalMaterialPath.IsEmpty())
+	{
+		MaterialBasePath = FPaths::Combine(Context.BaseImportPath, MaterialSettings.GlobalMaterialPath);
+		UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using GLOBAL material path: %s"),
+		       *InOutModelData.ModelName, *MaterialBasePath);
+	}
+	else
+	{
+		FString ModelRelativeDir = Context.Settings->Model.ExportDirectory;
+		if (ModelRelativeDir.IsEmpty()) ModelRelativeDir = TEXT("Models");
+		FString ModelBaseDir = FPaths::Combine(Context.BaseImportPath, ModelRelativeDir, InOutModelData.ModelName);
 
-         switch (ModelSettings.MaterialPathMode) {
-             case EMaterialExportPathMode::RootAndMaterial:
-                 MaterialBasePath = FPaths::Combine(Context.BaseImportPath, TEXT("Materials"));
-                 UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using RootAndMaterial path mode -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
-                 break;
-            case EMaterialExportPathMode::ModelAndMaterial:
-                MaterialBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"));
-                UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelAndMaterial path mode -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
-                break;
-            case EMaterialExportPathMode::ModelOnly:
-                 MaterialBasePath = ModelBaseDir;
-                 UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelOnly material path mode -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
-                 break;
-             default:
-                 MaterialBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"));
-                 UE_LOG(LogITUAssetImporter, Warning, TEXT("Model %s: Unknown MaterialPathMode, falling back to Model/Materials -> %s"), *InOutModelData.ModelName, *MaterialBasePath);
-                 break;
-         }
-    }
-    FPaths::NormalizeDirectoryName(MaterialBasePath);
-	
+		switch (ModelSettings.MaterialPathMode)
+		{
+		case EMaterialExportPathMode::RootAndMaterial:
+			MaterialBasePath = FPaths::Combine(Context.BaseImportPath, TEXT("Materials"));
+			UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using RootAndMaterial path mode -> %s"),
+			       *InOutModelData.ModelName, *MaterialBasePath);
+			break;
+		case EMaterialExportPathMode::ModelAndMaterial:
+			MaterialBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"));
+			UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelAndMaterial path mode -> %s"),
+			       *InOutModelData.ModelName, *MaterialBasePath);
+			break;
+		case EMaterialExportPathMode::ModelOnly:
+			MaterialBasePath = ModelBaseDir;
+			UE_LOG(LogITUAssetImporter, Verbose, TEXT("Model %s: Using ModelOnly material path mode -> %s"),
+			       *InOutModelData.ModelName, *MaterialBasePath);
+			break;
+		default:
+			MaterialBasePath = FPaths::Combine(ModelBaseDir, TEXT("Materials"));
+			UE_LOG(LogITUAssetImporter, Warning,
+			       TEXT("Model %s: Unknown MaterialPathMode, falling back to Model/Materials -> %s"),
+			       *InOutModelData.ModelName, *MaterialBasePath);
+			break;
+		}
+	}
+	FPaths::NormalizeDirectoryName(MaterialBasePath);
+
 	for (FWraithXModelLod& Lod : InOutModelData.ModelLods)
 	{
 		for (FWraithXMaterial& WraithMaterial : Lod.Materials)

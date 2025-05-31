@@ -58,7 +58,7 @@ bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo,
 
 		FWraithXModelLod& LodRef = OutModel.ModelLods.AddDefaulted_GetRef();
 
-		LodRef.LodDistance = ModelLod.LodDistance;
+		LodRef.LodDistance = ModelLod.LodDistance[FMath::Clamp(LodIdx, 0, 2)];
 		LodRef.LODStreamInfoPtr = ModelLod.MeshPtr;
 		uint64 XSurfacePtr = ModelLod.SurfsPtr;
 
@@ -75,6 +75,10 @@ bool FModernWarfare6AssetHandler::ReadModelData(TSharedPtr<FCoDModel> ModelInfo,
 			SubMeshRef.PackedIndexTableCount = Surface.PackedIndicesTableCount;
 			SubMeshRef.VertexOffset = Surface.XyzOffset;
 			SubMeshRef.VertexUVsOffset = Surface.TexCoordOffset;
+			if (Surface.SecondUVOffset != 0xFFFFFFFF)
+			{
+				SubMeshRef.VertexSecondUVsOffset = Surface.SecondUVOffset;
+			}
 			SubMeshRef.VertexTangentOffset = Surface.TangentFrameOffset;
 			SubMeshRef.FacesOffset = Surface.IndexDataOffset;
 			SubMeshRef.PackedIndexTableOffset = Surface.PackedIndiciesTableOffset;
@@ -155,7 +159,6 @@ bool FModernWarfare6AssetHandler::ReadAnimData(TSharedPtr<FCoDAnim> AnimInfo, FW
 		MemoryReader->ReadMemory<FMW6XAnimNoteTrack>(
 			AnimData.NotificationsPtr + NoteTrackIdx * sizeof(FMW6XAnimNoteTrack), NoteTrack);
 		FString TrackName;
-		// MemoryReader->Sta
 		MemoryReader->ReadString(GameProcess->ParasyteState->StringsAddress + NoteTrack.Name, TrackName);
 		OutAnim.Reader.Notetracks.Emplace(TrackName, NoteTrack.Time * OutAnim.FrameCount);
 	}
@@ -213,7 +216,7 @@ bool FModernWarfare6AssetHandler::ReadImageDataFromPtr(uint64 ImageHandle, TArra
 			RawPixelData.Empty();
 			UE_LOG(LogTemp, Error,
 			       TEXT(
-				       "ReadImageDataFromPtr: Failed to read %d bytes from LoadedImagePtr 0x%llX. Read %llu bytes. Hash: 0x%llX"
+				       "ReadImageDataFromPtr: Failed to read %d bytes from LoadedImagePtr 0x%llX. Read %d bytes. Hash: 0x%llX"
 			       ), ImageSize, ImageAsset.LoadedImagePtr, RawPixelData.Num(), ImageAsset.Hash);
 			return false;
 		}
@@ -240,7 +243,7 @@ bool FModernWarfare6AssetHandler::ReadImageDataFromPtr(uint64 ImageHandle, TArra
 			return false;
 		}
 
-		int32 FallbackMipIndex = -1;
+		int32 FallbackMipIndex = 0;
 		int32 HighestIndex = ImageAsset.MipCount - 1;
 
 		for (uint32 MipIdx = 0; MipIdx < MipCount; ++MipIdx)
@@ -481,7 +484,7 @@ bool FModernWarfare6AssetHandler::ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWrai
 
 		// --- Read Vertex Data ---
 		uint16 VertexCount = GfxSurface.VertexCount;
-		MeshInfo.UVLayer = UgbSurfData.LayerCount > 0 ? UgbSurfData.LayerCount - 1 : 0;
+		MeshInfo.UVLayer = FMath::Max(UgbSurfData.LayerCount, 0u);
 		MeshInfo.VertexPositions.Reserve(VertexCount);
 		MeshInfo.VertexNormals.Reserve(VertexCount);
 		MeshInfo.VertexTangents.Reserve(VertexCount);
@@ -676,55 +679,6 @@ bool FModernWarfare6AssetHandler::ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWrai
 	return true;
 }
 
-bool FModernWarfare6AssetHandler::TranslateModel(FWraithXModel& InModel, int32 LodIdx,
-                                                 FCastModelInfo& OutModelInfo, const FCastRoot& InSceneRoot)
-{
-	OutModelInfo.Name = InModel.ModelName;
-
-	if (!InModel.ModelLods.IsValidIndex(LodIdx))
-	{
-		UE_LOG(LogTemp, Error, TEXT("TranslateModel: Invalid LOD index %d for model %s"), LodIdx, *InModel.ModelName);
-		return false;
-	}
-	FWraithXModelLod& LodRef = InModel.ModelLods[LodIdx];
-
-	for (int32 SubmeshIdx = 0; SubmeshIdx < LodRef.Submeshes.Num(); ++SubmeshIdx)
-	{
-		if (!LodRef.Materials.IsValidIndex(SubmeshIdx))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("TranslateModel: Material index %d out of bounds for LOD %d of model %s."),
-			       SubmeshIdx, LodIdx, *InModel.ModelName);
-			continue;
-		}
-		FWraithXMaterial& Material = LodRef.Materials[SubmeshIdx];
-		FWraithXModelSubmesh& Submesh = LodRef.Submeshes[SubmeshIdx];
-
-		if (const uint32* FoundIndex = InSceneRoot.MaterialMap.Find(Material.MaterialHash))
-		{
-			Submesh.MaterialIndex = *FoundIndex;
-			Submesh.MaterialHash = Material.MaterialHash;
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error,
-			       TEXT(
-				       "TranslateModel: Material hash %llu (Material: %s) not found in pre-processed SceneRoot.MaterialMap for LOD %d of model %s. This indicates an error in the pre-processing step."
-			       ),
-			       Material.MaterialHash, *Material.MaterialName, LodIdx, *InModel.ModelName);
-			Submesh.MaterialIndex = INDEX_NONE;
-			Submesh.MaterialHash = Material.MaterialHash;
-		}
-	}
-	if (InModel.IsModelStreamed)
-	{
-		LoadXModel(InModel, LodRef, OutModelInfo);
-	}
-	else
-	{
-	}
-	return true;
-}
-
 bool FModernWarfare6AssetHandler::TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo)
 {
 	OutAnimInfo.Name = InAnim.AnimationName;
@@ -806,13 +760,15 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 		Mesh.MaterialHash = Submesh.MaterialHash;
 
 		FBufferReader VertexPosReader(MeshDataBuffer.GetData() + Submesh.VertexOffset,
-		                              Submesh.VertexOffset * sizeof(uint64), false);
+		                              Submesh.VertexCount * sizeof(uint64), false);
 		FBufferReader VertexTangentReader(MeshDataBuffer.GetData() + Submesh.VertexTangentOffset,
-		                                  Submesh.VertexOffset * sizeof(uint32), false);
+		                                  Submesh.VertexCount * sizeof(uint32), false);
 		FBufferReader VertexUVReader(MeshDataBuffer.GetData() + Submesh.VertexUVsOffset,
-		                             Submesh.VertexOffset * sizeof(uint32), false);
+		                             Submesh.VertexCount * sizeof(uint32), false);
+		FBufferReader SecondUVReader(MeshDataBuffer.GetData() + Submesh.VertexSecondUVsOffset,
+		                             Submesh.VertexCount * sizeof(uint32), false);
 		FBufferReader FaceIndiciesReader(MeshDataBuffer.GetData() + Submesh.FacesOffset,
-		                                 Submesh.FacesOffset * sizeof(uint16) * 3, false);
+		                                 Submesh.FaceCount * sizeof(uint16) * 3, false);
 
 		// 顶点权重
 		Mesh.VertexWeights.SetNum(Submesh.VertexCount);
@@ -860,8 +816,20 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 		Mesh.VertexTangents.Reserve(Submesh.VertexCount);
 		Mesh.VertexNormals.Reserve(Submesh.VertexCount);
 
-		Mesh.VertexUVs.SetNum(1);
-		Mesh.VertexUVs[0].Reserve(Submesh.VertexCount);
+		bool bHasUV0 = Submesh.VertexUVsOffset != 0 && Submesh.VertexUVsOffset != 0xFFFFFFFF;
+		bool bHasUV1 = Submesh.VertexSecondUVsOffset != 0xFFFFFFFF && Submesh.VertexSecondUVsOffset != 0;
+		if (bHasUV1)
+		{
+			Mesh.VertexUVs.SetNum(2);
+		}
+		else if (bHasUV0)
+		{
+			Mesh.VertexUVs.SetNum(1);
+		}
+		else
+		{
+			Mesh.VertexUVs.SetNum(0);
+		}
 
 		Mesh.VertexColor.Reserve(Submesh.VertexCount);
 
@@ -883,18 +851,31 @@ void FModernWarfare6AssetHandler::LoadXModel(FWraithXModel& InModel, FWraithXMod
 			Mesh.VertexNormals.Add(Normal);
 			Mesh.VertexTangents.Add(Tangent);
 
-			uint16 HalfUvU, HalfUvV;
-			VertexUVReader << HalfUvU << HalfUvV;
-			float HalfU = HalfFloatHelper::ToFloat(HalfUvU);
-			float HalfV = HalfFloatHelper::ToFloat(HalfUvV);
-			Mesh.VertexUVs[0].Emplace(HalfU, HalfV);
+			auto ReadUV = [](FBufferReader& InReader, FVector2f& OutUV)
+			{
+				uint16 HalfUvU, HalfUvV;
+				InReader << HalfUvU << HalfUvV;
+				OutUV.X = HalfFloatHelper::ToFloat(HalfUvU);
+				OutUV.Y = HalfFloatHelper::ToFloat(HalfUvV);
+			};
+			if (bHasUV0 && Mesh.VertexUVs.IsValidIndex(0))
+			{
+				FVector2f UV;
+				ReadUV(VertexUVReader, UV);
+				Mesh.VertexUVs[0].Add(UV);
+			}
+			if (bHasUV1 && Mesh.VertexUVs.IsValidIndex(1))
+			{
+				FVector2f UV;
+				ReadUV(SecondUVReader, UV);
+				Mesh.VertexUVs[1].Add(UV);
+			}
 		}
-		// TODO Second UV
 		// 顶点色
 		if (Submesh.VertexColorOffset != 0xFFFFFFFF)
 		{
 			FBufferReader VertexColorReader(MeshDataBuffer.GetData() + Submesh.VertexColorOffset,
-			                                Submesh.FacesOffset * sizeof(uint32), false);
+			                                Submesh.VertexCount * sizeof(uint32), false);
 			for (uint32 VertexIdx = 0; VertexIdx < Submesh.VertexCount; VertexIdx++)
 			{
 				uint32 VertexColor;

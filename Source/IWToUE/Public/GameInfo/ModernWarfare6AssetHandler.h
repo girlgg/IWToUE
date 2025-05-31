@@ -26,17 +26,16 @@ public:
 	virtual bool ReadMaterialData(TSharedPtr<FCoDMaterial> MaterialInfo, FWraithXMaterial& OutMaterial) override;
 	virtual bool ReadMaterialDataFromPtr(uint64 MaterialHandle, FWraithXMaterial& OutMaterial) override;
 	virtual bool ReadMapData(TSharedPtr<FCoDMap> MapInfo, FWraithXMap& OutMapData) override;
-
-	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo,
-	                            const FCastRoot& InSceneRoot) override;
+	
 	virtual bool TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) override;
 
 	virtual bool LoadStreamedModelData(const FWraithXModel& InModel, FWraithXModelLod& InOutLod,
 	                                   FCastModelInfo& OutModelInfo) override;
 	virtual bool LoadStreamedAnimData(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) override;
 
+	virtual void LoadXModel(FWraithXModel& InModel, FWraithXModelLod& ModelLod, FCastModelInfo& OutModel) override;
+
 protected:
-	void LoadXModel(FWraithXModel& InModel, FWraithXModelLod& ModelLod, FCastModelInfo& OutModel);
 	void LoadXAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnim);
 
 	void MW6XAnimCalculateBufferIndex(FMW6XAnimBufferState& AnimState, const int32 TableSize,

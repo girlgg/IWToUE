@@ -1,21 +1,23 @@
-﻿#include "GameInfo/ModernWarfare6AssetDiscoverer.h"
+﻿#include "GameInfo/ModernWarfare5AssetDiscoverer.h"
 
 #include "SeLogChannels.h"
 #include "CDN/CoDCDNDownloaderV2.h"
 #include "Database/CoDDatabaseService.h"
 #include "Interface/IMemoryReader.h"
 #include "MapImporter/XSub.h"
-#include "Structures/MW6GameStructures.h"
-#include "Utils/AssetDiscovererHelper.h"
+#include "WraithX/CoDAssetType.h"
+#include "WraithX/GameProcess.h"
 #include "WraithX/LocateGameInfo.h"
 #include "WraithX/WraithSettings.h"
 #include "WraithX/WraithSettingsManager.h"
+#include "Structures/MW5GameStructures.h"
+#include "Utils/AssetDiscovererHelper.h"
 
-FModernWarfare6AssetDiscoverer::FModernWarfare6AssetDiscoverer()
+FModernWarfare5AssetDiscoverer::FModernWarfare5AssetDiscoverer()
 {
 }
 
-bool FModernWarfare6AssetDiscoverer::Initialize(IMemoryReader* InReader,
+bool FModernWarfare5AssetDiscoverer::Initialize(IMemoryReader* InReader,
                                                 const CoDAssets::FCoDGameProcess& InProcessInfo,
                                                 TSharedPtr<LocateGameInfo::FParasyteBaseState> InParasyteState)
 {
@@ -24,13 +26,12 @@ bool FModernWarfare6AssetDiscoverer::Initialize(IMemoryReader* InReader,
 
 	if (!Reader || !Reader->IsValid() || !ParasyteState.IsValid())
 	{
-		UE_LOG(LogITUAssetImporter, Error, TEXT("MW6 Discoverer Init Failed: Invalid reader or Parasyte state."));
+		UE_LOG(LogITUAssetImporter, Error, TEXT("MW5 Discoverer Init Failed: Invalid reader or Parasyte state."));
 		return false;
 	}
-
-	if (ParasyteState->GameID == 0x4B4F4D41594D4159)
+	if (ParasyteState->GameID == 0x3232524157444F4D)
 	{
-		GameType = CoDAssets::ESupportedGames::ModernWarfare6;
+		GameType = CoDAssets::ESupportedGames::ModernWarfare5;
 		GameFlag = ParasyteState->Flags.Contains("sp")
 			           ? CoDAssets::ESupportedGameFlags::SP
 			           : CoDAssets::ESupportedGameFlags::MP;
@@ -42,7 +43,7 @@ bool FModernWarfare6AssetDiscoverer::Initialize(IMemoryReader* InReader,
 		{
 			CDNDownloader->Initialize(ParasyteState->GameDirectory);
 		}
-		UE_LOG(LogITUAssetImporter, Log, TEXT("MW6 Discoverer Initialized for game ID %llX"),
+		UE_LOG(LogITUAssetImporter, Log, TEXT("MW5 Discoverer Initialized for game ID %llX"),
 		       ParasyteState->GameID);
 		return true;
 	}
@@ -53,19 +54,19 @@ bool FModernWarfare6AssetDiscoverer::Initialize(IMemoryReader* InReader,
 	return false;
 }
 
-TArray<FAssetPoolDefinition> FModernWarfare6AssetDiscoverer::GetAssetPools() const
+TArray<FAssetPoolDefinition> FModernWarfare5AssetDiscoverer::GetAssetPools() const
 {
 	return {
 		{9, EWraithAssetType::Model, TEXT("XModel")},
-		{21, EWraithAssetType::Image, TEXT("XImage")},
+		{19, EWraithAssetType::Image, TEXT("XImage")},
 		{7, EWraithAssetType::Animation, TEXT("XAnim")},
 		{11, EWraithAssetType::Material, TEXT("XMaterial")},
-		{193, EWraithAssetType::Sound, TEXT("XSound")},
+		{197, EWraithAssetType::Sound, TEXT("XSound")},
 		{50, EWraithAssetType::Map, TEXT("XMap")}
 	};
 }
 
-int32 FModernWarfare6AssetDiscoverer::DiscoverAssetsInPool(const FAssetPoolDefinition& PoolDefinition,
+int32 FModernWarfare5AssetDiscoverer::DiscoverAssetsInPool(const FAssetPoolDefinition& PoolDefinition,
                                                            FAssetDiscoveredDelegate OnAssetDiscovered)
 {
 	if (!Reader || !Reader->IsValid() || !ParasyteState.IsValid()) return 0;
@@ -96,7 +97,6 @@ int32 FModernWarfare6AssetDiscoverer::DiscoverAssetsInPool(const FAssetPoolDefin
 	{
 		return 0;
 	}
-
 	FXAssetPool64 PoolHeader;
 	if (!ReadAssetPoolHeader(PoolDefinition.PoolIdentifier, PoolHeader))
 	{
@@ -173,7 +173,7 @@ int32 FModernWarfare6AssetDiscoverer::DiscoverAssetsInPool(const FAssetPoolDefin
 	return DiscoveredCount;
 }
 
-bool FModernWarfare6AssetDiscoverer::LoadStringTableEntry(uint64 Index, FString& OutString)
+bool FModernWarfare5AssetDiscoverer::LoadStringTableEntry(uint64 Index, FString& OutString)
 {
 	if (Reader && ParasyteState.IsValid() && ParasyteState->StringsAddress != 0)
 	{
@@ -183,24 +183,24 @@ bool FModernWarfare6AssetDiscoverer::LoadStringTableEntry(uint64 Index, FString&
 	return false;
 }
 
-bool FModernWarfare6AssetDiscoverer::ReadAssetPoolHeader(int32 PoolIdentifier, FXAssetPool64& OutPoolHeader)
+bool FModernWarfare5AssetDiscoverer::ReadAssetPoolHeader(int32 PoolIdentifier, FXAssetPool64& OutPoolHeader)
 {
 	if (!Reader || !ParasyteState.IsValid() || ParasyteState->PoolsAddress == 0) return false;
 	uint64 PoolAddress = ParasyteState->PoolsAddress + sizeof(FXAssetPool64) * PoolIdentifier;
 	return Reader->ReadMemory<FXAssetPool64>(PoolAddress, OutPoolHeader);
 }
 
-bool FModernWarfare6AssetDiscoverer::ReadAssetNode(uint64 AssetNodePtr, FXAsset64& OutAssetNode)
+bool FModernWarfare5AssetDiscoverer::ReadAssetNode(uint64 AssetNodePtr, FXAsset64& OutAssetNode)
 {
 	if (!Reader || AssetNodePtr == 0) return false;
 	return Reader->ReadMemory<FXAsset64>(AssetNodePtr, OutAssetNode);
 }
 
-void FModernWarfare6AssetDiscoverer::DiscoverModelAssets(FXAsset64 AssetNode,
+void FModernWarfare5AssetDiscoverer::DiscoverModelAssets(FXAsset64 AssetNode,
                                                          FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	FMW6XModel ModelHeader;
-	if (!Reader->ReadMemory<FMW6XModel>(AssetNode.Header, ModelHeader))
+	FMW5XModel ModelHeader;
+	if (!Reader->ReadMemory<FMW5XModel>(AssetNode.Header, ModelHeader))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Failed to read XModel header at 0x%llX"), AssetNode.Header);
 		return;
@@ -213,6 +213,8 @@ void FModernWarfare6AssetDiscoverer::DiscoverModelAssets(FXAsset64 AssetNode,
 		LoadedModel->AssetType = EWraithAssetType::Model;
 		LoadedModel->AssetName = ProcessAssetName(ModelName);
 		LoadedModel->AssetPointer = AssetNode.Header;
+		LoadedModel->BoneCount =
+			(ModelHeader.ParentListPtr > 0) ? (ModelHeader.NumBones + ModelHeader.UnkBoneCount) : 0;
 		LoadedModel->LodCount = ModelHeader.NumLods;
 		LoadedModel->AssetStatus = AssetNode.Temp == 1
 			                           ? EWraithAssetStatus::Placeholder
@@ -247,58 +249,58 @@ void FModernWarfare6AssetDiscoverer::DiscoverModelAssets(FXAsset64 AssetNode,
 	}
 }
 
-void FModernWarfare6AssetDiscoverer::DiscoverImageAssets(FXAsset64 AssetNode,
+void FModernWarfare5AssetDiscoverer::DiscoverImageAssets(FXAsset64 AssetNode,
                                                          FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	ProcessGenericAssetNode<FMW6GfxImage, FCoDImage>(
-		Reader, AssetNode, EWraithAssetType::Image, TEXT("ximage"),
-		[](const FMW6GfxImage& ImageHeader, TSharedPtr<FCoDImage> LoadedImage)
-		{
-			LoadedImage->Width = ImageHeader.Width;
-			LoadedImage->Height = ImageHeader.Height;
-			LoadedImage->Format = ImageHeader.ImageFormat;
-			LoadedImage->bIsFileEntry = false;
-			LoadedImage->Streamed = ImageHeader.LoadedImagePtr == 0;
-		},
-		OnAssetDiscovered
-	);
+	ProcessGenericAssetNode<FMW5GfxImage, FCoDImage>(
+	Reader, AssetNode, EWraithAssetType::Image, TEXT("ximage"),
+	[](const FMW5GfxImage& ImageHeader, TSharedPtr<FCoDImage> LoadedImage)
+	{
+		LoadedImage->Width = ImageHeader.Width;
+		LoadedImage->Height = ImageHeader.Height;
+		LoadedImage->Format = ImageHeader.ImageFormat;
+		LoadedImage->bIsFileEntry = false;
+		LoadedImage->Streamed = ImageHeader.LoadedImagePtr == 0;
+	},
+	OnAssetDiscovered
+);
 }
 
-void FModernWarfare6AssetDiscoverer::DiscoverAnimAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered)
+void FModernWarfare5AssetDiscoverer::DiscoverAnimAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	ProcessGenericAssetNode<FMW6XAnim, FCoDAnim>(
-		Reader, AssetNode, EWraithAssetType::Animation, TEXT("xanim"),
-		[](const FMW6XAnim& Anim, TSharedPtr<FCoDAnim> LoadedAnim)
-		{
-			LoadedAnim->AssetType = EWraithAssetType::Animation;
-			LoadedAnim->Framerate = Anim.Framerate;
-			LoadedAnim->FrameCount = Anim.FrameCount;
-			LoadedAnim->BoneCount = Anim.TotalBoneCount;
-		},
-		OnAssetDiscovered
-	);
+	ProcessGenericAssetNode<FMW5XAnim, FCoDAnim>(
+	Reader, AssetNode, EWraithAssetType::Animation, TEXT("xanim"),
+	[](const FMW5XAnim& Anim, TSharedPtr<FCoDAnim> LoadedAnim)
+	{
+		LoadedAnim->AssetType = EWraithAssetType::Animation;
+		LoadedAnim->Framerate = Anim.Framerate;
+		LoadedAnim->FrameCount = Anim.FrameCount;
+		LoadedAnim->BoneCount = Anim.TotalBoneCount;
+	},
+	OnAssetDiscovered
+);
 }
 
-void FModernWarfare6AssetDiscoverer::DiscoverMaterialAssets(FXAsset64 AssetNode,
+void FModernWarfare5AssetDiscoverer::DiscoverMaterialAssets(FXAsset64 AssetNode,
                                                             FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	ProcessGenericAssetNode<FMW6Material, FCoDMaterial>(
-		Reader, AssetNode, EWraithAssetType::Material, TEXT("xmaterial"),
-		[](const FMW6Material& Material, TSharedPtr<FCoDMaterial> LoadedMaterial)
-		{
-			LoadedMaterial->AssetType = EWraithAssetType::Material;
-			LoadedMaterial->ImageCount = Material.ImageCount;
-		},
-		OnAssetDiscovered
-	);
+	ProcessGenericAssetNode<FMW5XMaterial, FCoDMaterial>(
+	Reader, AssetNode, EWraithAssetType::Material, TEXT("xmaterial"),
+	[](const FMW5XMaterial& Material, TSharedPtr<FCoDMaterial> LoadedMaterial)
+	{
+		LoadedMaterial->AssetType = EWraithAssetType::Material;
+		LoadedMaterial->ImageCount = Material.ImageCount;
+	},
+	OnAssetDiscovered
+);
 }
 
-void FModernWarfare6AssetDiscoverer::DiscoverSoundAssets(FXAsset64 AssetNode,
+void FModernWarfare5AssetDiscoverer::DiscoverSoundAssets(FXAsset64 AssetNode,
                                                          FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	ProcessGenericAssetNode<FMW6SoundAsset, FCoDSound>(
+	ProcessGenericAssetNode<FMW5SoundAsset, FCoDSound>(
 		Reader, AssetNode, EWraithAssetType::Sound, TEXT("xsound"),
-		[](const FMW6SoundAsset& Sound, TSharedPtr<FCoDSound> LoadedSound)
+		[](const FMW5SoundAsset& Sound, TSharedPtr<FCoDSound> LoadedSound)
 		{
 			LoadedSound->FullName = LoadedSound->AssetName;
 			LoadedSound->AssetType = EWraithAssetType::Sound;
@@ -324,11 +326,12 @@ void FModernWarfare6AssetDiscoverer::DiscoverSoundAssets(FXAsset64 AssetNode,
 	);
 }
 
-void FModernWarfare6AssetDiscoverer::DiscoverMapAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered)
+// 测试 mp_embassy
+void FModernWarfare5AssetDiscoverer::DiscoverMapAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered)
 {
-	ProcessGenericAssetNode<FMW6GfxWorld, FCoDMap>(
+	ProcessGenericAssetNode<FMW5GfxWorld, FCoDMap>(
 		Reader, AssetNode, EWraithAssetType::Map, TEXT("xmap"),
-		[this](const FMW6GfxWorld& WorldHeader, TSharedPtr<FCoDMap> LoadedMap)
+		[this](const FMW5GfxWorld& WorldHeader, TSharedPtr<FCoDMap> LoadedMap)
 		{
 			Reader->ReadString(WorldHeader.BaseName, LoadedMap->AssetName);
 		},

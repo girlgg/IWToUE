@@ -52,8 +52,7 @@ public:
 
 	// --- 数据转换 ---
 
-	virtual bool TranslateModel(FWraithXModel& InModel, int32 LodIdx, FCastModelInfo& OutModelInfo,
-	                            const FCastRoot& InSceneRoot) = 0;
+	virtual void LoadXModel(FWraithXModel& InModel, FWraithXModelLod& ModelLod, FCastModelInfo& OutModel) = 0;
 	virtual bool TranslateAnim(const FWraithXAnim& InAnim, FCastAnimationInfo& OutAnimInfo) = 0;
 
 	// virtual void ApplyDeltaTranslation(FCastAnimationInfo& OutAnim, const FWraithXAnim& InAnim) = 0;

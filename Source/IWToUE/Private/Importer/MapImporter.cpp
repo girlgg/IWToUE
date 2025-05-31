@@ -7,6 +7,7 @@
 #include "CastManager/DefaultCastMeshImporter.h"
 #include "Engine/StaticMeshActor.h"
 #include "Interface/IGameAssetHandler.h"
+#include "Translators/CoDXModelTranslator.h"
 #include "Utils/CoDAssetHelper.h"
 #include "WraithX/CoDAssetType.h"
 
@@ -393,7 +394,7 @@ UObject* FMapImporter::ImportStaticModelAsset(uint64 ModelPtr, const FAssetImpor
 	for (int32 LodIdx = 0; LodIdx < GenericModelData.ModelLods.Num(); ++LodIdx)
 	{
 		FCastModelInfo TranslatedLodModel;
-		if (Context.GameHandler->TranslateModel(GenericModelData, LodIdx, TranslatedLodModel, SceneRoot))
+		if (FCoDXModelTranslator::TranslateModel(Context.GameHandler, GenericModelData, LodIdx, TranslatedLodModel, SceneRoot))
 		{
 			if (!TranslatedLodModel.Meshes.IsEmpty())
 			{

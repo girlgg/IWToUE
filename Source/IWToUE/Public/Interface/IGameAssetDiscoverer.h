@@ -1,5 +1,7 @@
 ﻿#pragma once
+#include "IMemoryReader.h"
 #include "Structures/CodAssets.h"
+#include "WraithX/CoDAssetType.h"
 
 class FCoDCDNDownloader;
 class FXSub;
@@ -46,7 +48,10 @@ public:
 	virtual TArray<FAssetPoolDefinition> GetAssetPools() const = 0;
 
 	virtual int32 DiscoverAssetsInPool(const FAssetPoolDefinition& PoolDefinition,
-	                                  FAssetDiscoveredDelegate OnAssetDiscovered) = 0;
+	                                   FAssetDiscoveredDelegate OnAssetDiscovered) = 0;
 
 	virtual bool LoadStringTableEntry(uint64 Index, FString& OutString) = 0;
+
+protected:
+	IMemoryReader* Reader = nullptr;
 };

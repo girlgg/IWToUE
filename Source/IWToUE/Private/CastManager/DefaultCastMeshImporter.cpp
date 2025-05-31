@@ -304,20 +304,17 @@ USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThre
 		return nullptr;
 	}
 
-	FCastRoot& Root = *PreparedData.RootPtr; // Dereference pointer safely now
+	FCastRoot& Root = *PreparedData.RootPtr;
 	const FCastImportOptions& Options = *PreparedData.OptionsPtr;
 	ICastMaterialImporter* MaterialImporter = PreparedData.MaterialImporterPtr;
 
-	// Use a local slow task for GT operations
 	FScopedSlowTask SlowTask(100, NSLOCTEXT("CastImporter", "ImportingSkeletalMeshGT",
 	                                        "Importing Skeletal Mesh (GT)..."));
 	SlowTask.MakeDialog();
 
-	// --- Create Asset (Game Thread) ---
 	SlowTask.EnterProgressFrame(5, FText::Format(
 		                            NSLOCTEXT("CastImporter", "SkM_CreatingAssetGT", "Creating Asset {0} (GT)"),
 		                            FText::FromString(PreparedData.MeshName)));
-	// Assuming CreateAsset is thread-safe or called correctly (as refactored previously)
 	USkeletalMesh* SkeletalMesh = ICastAssetImporter::CreateAsset<USkeletalMesh>(
 		PreparedData.ParentPackagePath, PreparedData.MeshName, true);
 	if (!SkeletalMesh)
@@ -326,16 +323,16 @@ USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThre
 		       *PreparedData.MeshName);
 		return nullptr;
 	}
-	OutCreatedObjects.Add(SkeletalMesh); // Add main asset
+	OutCreatedObjects.Add(SkeletalMesh);
 
-	// --- Shared Data Across LODs (Now managed on GT) ---
+	// --- Shared Data Across LODs ---
 	TMap<uint32, int32> SharedMaterialMap;
 	TArray<SkeletalMeshImportData::FMaterial> FinalMaterials;
 	bool bHasVertexColors_AnyLOD = false;
 	int MaxUVLayer_AnyLOD = 0;
 	TArray<FVector> AllMeshPoints_LOD0;
 
-	// --- Setup Skeletal Mesh Asset Base (Game Thread) ---
+	// --- Setup Skeletal Mesh Asset Base ---
 	SkeletalMesh->PreEditChange(nullptr);
 	SkeletalMesh->InvalidateDeriveDataCacheGUID();
 	SkeletalMesh->ResetLODInfo();
@@ -344,21 +341,20 @@ USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThre
 	check(ImportedModel);
 	ImportedModel->LODModels.Empty();
 
-	// --- Process Each LOD (Game Thread - includes Populate call now) ---
+	// --- Process Each LOD ---
 	float ProgressPerLOD = 40.0f / FMath::Max(1, PreparedData.LodModelIndexAndDistance.Num());
 	int32 ValidLodsProcessed = 0;
 
 	for (int32 LodIdx = 0; LodIdx < PreparedData.LodModelIndexAndDistance.Num(); ++LodIdx)
 	{
 		const int32 CurrentModelIndex = PreparedData.LodModelIndexAndDistance[LodIdx].Get<0>();
-		const float CurrentDistance = PreparedData.LodModelIndexAndDistance[LodIdx].Get<1>();
 
 		SlowTask.EnterProgressFrame(ProgressPerLOD,
 		                            FText::Format(
 			                            NSLOCTEXT("CastImporter", "SkM_ProcessingLODGT", "Processing LOD {0} (GT)..."),
-			                            FText::AsNumber(ValidLodsProcessed))); // Use ValidLodsProcessed for UI index
+			                            FText::AsNumber(ValidLodsProcessed)));
 
-		// --- Validate Model Index and Data (Game Thread) ---
+		// --- Validate Model Index and Data ---
 		if (!Root.Models.IsValidIndex(CurrentModelIndex))
 		{
 			UE_LOG(LogCast, Error, TEXT("GT_Apply: Invalid ModelIndex %d specified for LOD %d in '%s'. Skipping."),
@@ -374,23 +370,22 @@ USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThre
 			continue;
 		}
 
-		// --- Populate Import Data (Game Thread) ---
+		// --- Populate Import Data ---
 		FSkeletalMeshImportData LodImportData;
-		LodImportData.RefBonesBinary = PreparedData.RefBonesBinary; // Use prepared skeleton
+		LodImportData.RefBonesBinary = PreparedData.RefBonesBinary;
 
-		// **Call Populate ON GAME THREAD, passing the valid SkeletalMesh**
 		bool bPopulateSuccess = PopulateSkeletalMeshImportData(
 			Root,
 			CurrentLodModelInfo,
 			LodImportData,
 			Options,
 			MaterialImporter,
-			SkeletalMesh, // Pass the created mesh
-			SharedMaterialMap, // Use local GT map
-			FinalMaterials, // Use local GT list
-			OutCreatedObjects, // Allow adding materials etc. directly
-			bHasVertexColors_AnyLOD, // Use local GT flag
-			MaxUVLayer_AnyLOD // Use local GT max
+			SkeletalMesh,
+			SharedMaterialMap,
+			FinalMaterials,
+			OutCreatedObjects,
+			bHasVertexColors_AnyLOD,
+			MaxUVLayer_AnyLOD
 		);
 
 		if (!bPopulateSuccess || LodImportData.Points.IsEmpty() || LodImportData.Faces.IsEmpty())
@@ -399,46 +394,47 @@ USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThre
 			       TEXT(
 				       "GT_Apply: PopulateSkeletalMeshImportData failed or result empty for LOD %d (Model %d) in %s. Skipping."
 			       ), ValidLodsProcessed, CurrentModelIndex, *PreparedData.MeshName);
-			continue; // Skip this LOD
+			continue;
 		}
 
-		// Store points from LOD0 for bounding box calculation (only if this is the first valid LOD)
 		if (ValidLodsProcessed == 0)
 		{
 			AllMeshPoints_LOD0.Reserve(LodImportData.Points.Num());
-			for (const FVector3f& Pt : LodImportData.Points) AllMeshPoints_LOD0.Add(FVector(Pt));
+			for (const FVector3f& Pt : LodImportData.Points)
+				AllMeshPoints_LOD0.Add(FVector(Pt));
 		}
 
-		// --- Add LOD to Asset (Game Thread) ---
 		FSkeletalMeshLODInfo& AssetLODInfo = SkeletalMesh->AddLODInfo();
-		// AssetLODInfo.ScreenSize = CurrentDistance / 10;
 
 		FSkeletalMeshBuildSettings BuildOptions;
 		BuildOptions.bRecomputeNormals = !LodImportData.bHasNormals;
 		BuildOptions.bRecomputeTangents = !LodImportData.bHasTangents;
 		BuildOptions.bUseMikkTSpace = BuildOptions.bRecomputeTangents;
-		// ... (set other build options as before) ...
 		AssetLODInfo.BuildSettings = BuildOptions;
 
 		ImportedModel->LODModels.Add(new FSkeletalMeshLODModel());
 		FSkeletalMeshLODModel& LODModel = ImportedModel->LODModels.Last();
-		// Use Last() as index matches ValidLodsProcessed
-		LODModel.NumTexCoords = FMath::Max(1, MaxUVLayer_AnyLOD);
+		if (MaxUVLayer_AnyLOD == -1)
+		{
+			LODModel.NumTexCoords = 0;
+		}
+		else
+		{
+			LODModel.NumTexCoords = FMath::Max(1, MaxUVLayer_AnyLOD + 1);
+		}
 
-		// Save the populated import data
 		PRAGMA_DISABLE_DEPRECATION_WARNINGS
-		SkeletalMesh->SaveLODImportedData(ValidLodsProcessed, LodImportData); // Use ValidLodsProcessed as the index
+		SkeletalMesh->SaveLODImportedData(ValidLodsProcessed, LodImportData);
 		PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
-		ValidLodsProcessed++; // Increment count of successfully processed LODs
+		ValidLodsProcessed++;
 	}
 
-	// Check if any valid LODs were actually processed and added
-	if (ValidLodsProcessed == 0) // Or check SkeletalMesh->GetLODNum()
+	if (ValidLodsProcessed == 0)
 	{
 		UE_LOG(LogCast, Error, TEXT("GT_Apply: No valid LODs were imported/processed for Skeletal Mesh %s. Aborting."),
 		       *PreparedData.MeshName);
-		SkeletalMesh->MarkAsGarbage(); // Clean up the asset
+		SkeletalMesh->MarkAsGarbage();
 		return nullptr;
 	}
 
@@ -476,8 +472,7 @@ USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThre
 
 	// Build Mesh
 	SlowTask.EnterProgressFrame(15, NSLOCTEXT("CastImporter", "SkM_BuildingMeshLODsGT", "Building Mesh LODs (GT)..."));
-	IMeshBuilderModule& MeshBuilderModule = FModuleManager::LoadModuleChecked<IMeshBuilderModule>("MeshBuilder");
-	SkeletalMesh->Build(); // This still happens on GT
+	SkeletalMesh->Build();
 
 	// Verify Render Data
 	SlowTask.EnterProgressFrame(2, NSLOCTEXT("CastImporter", "SkM_VerifyRenderDataGT",
@@ -496,7 +491,6 @@ USkeletalMesh* FDefaultCastMeshImporter::CreateAndApplySkeletalMeshData_GameThre
 	// Asset Import Data
 	if (!PreparedData.OriginalFilePath.IsEmpty())
 	{
-		// (Setup AssetImportData as before...)
 		UAssetImportData* ImportData = SkeletalMesh->GetAssetImportData();
 		if (!ImportData)
 		{
@@ -984,19 +978,19 @@ bool FDefaultCastMeshImporter::PopulateMeshDescriptionFromCastModel(
 				TriangleVertexInstanceIDs[Corner] = VertexInstanceID;
 
 				// Set UVs
-				if (!Mesh.VertexUVs.IsEmpty() && Mesh.VertexUVs[0].IsValidIndex(MeshLocalVertexIndex))
+				for (int32 UVChannelIndex = 0; UVChannelIndex < NumUVChannels; ++UVChannelIndex)
 				{
-					VertexInstanceUVs.Set(VertexInstanceID, 0,
-					                      FVector2f(Mesh.VertexUVs[0][MeshLocalVertexIndex].X,
-					                                Mesh.VertexUVs[0][MeshLocalVertexIndex].Y));
-				}
-				else
-				{
-					VertexInstanceUVs.Set(VertexInstanceID, 0, FVector2f(0.f, 0.f));
-				}
-				for (int UVChannel = 1; UVChannel < NumUVChannels; ++UVChannel)
-				{
-					VertexInstanceUVs.Set(VertexInstanceID, UVChannel, FVector2f(0.f, 0.f));
+					if (Mesh.VertexUVs.IsValidIndex(UVChannelIndex) &&
+						Mesh.VertexUVs[UVChannelIndex].IsValidIndex(MeshLocalVertexIndex))
+					{
+						VertexInstanceUVs.Set(VertexInstanceID, UVChannelIndex,
+						                      FVector2f(Mesh.VertexUVs[UVChannelIndex][MeshLocalVertexIndex].X,
+						                                Mesh.VertexUVs[UVChannelIndex][MeshLocalVertexIndex].Y));
+					}
+					else
+					{
+						VertexInstanceUVs.Set(VertexInstanceID, UVChannelIndex, FVector2f(0.f, 0.f));
+					}
 				}
 
 				// Set Normals, Tangents, Colors
@@ -1086,7 +1080,11 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& R
 		{
 			OutImportData.Points.Add(FVector3f(Pos.X, -Pos.Y, Pos.Z));
 		}
-		LodMaxUVLayer = FMath::Max(LodMaxUVLayer, (int32)Mesh.UVLayer);
+		if (!Mesh.VertexUVs.IsEmpty())
+		{
+			LodMaxUVLayer = FMath::Max(LodMaxUVLayer, Mesh.VertexUVs.Num() - 1);
+		}
+		// LodMaxUVLayer = FMath::Max(LodMaxUVLayer, (int32)Mesh.UVLayer);
 		// --- Material Mapping ---
 		int32 LocalMaterialIndex = INDEX_NONE;
 		int32 FinalMaterialIndex = INDEX_NONE;
@@ -1247,18 +1245,18 @@ bool FDefaultCastMeshImporter::PopulateSkeletalMeshImportData(const FCastRoot& R
 				Wedge.MatIndex = LocalMaterialIndex;
 
 				// UVs
-				if (!Mesh.VertexUVs.IsEmpty() && Mesh.VertexUVs[0].IsValidIndex(MeshLocalVertexIndex))
+				int32 NumUVChannelsForThisMesh = Mesh.VertexUVs.Num();
+				for (int32 UVIdx = 0; UVIdx < NumUVChannelsForThisMesh && UVIdx < MAX_TEXCOORDS; ++UVIdx)
 				{
-					Wedge.UVs[0] = FVector2f(Mesh.VertexUVs[0][MeshLocalVertexIndex].X,
-					                         Mesh.VertexUVs[0][MeshLocalVertexIndex].Y);
-				}
-				else
-				{
-					Wedge.UVs[0] = FVector2f(0.f, 0.f);
-				}
-				for (int32 TexCoordIdx = 1; TexCoordIdx < MAX_TEXCOORDS; ++TexCoordIdx)
-				{
-					Wedge.UVs[TexCoordIdx] = FVector2f(0.f, 0.f);
+					if (Mesh.VertexUVs.IsValidIndex(UVIdx) && Mesh.VertexUVs[UVIdx].IsValidIndex(MeshLocalVertexIndex))
+					{
+						Wedge.UVs[UVIdx] = FVector2f(Mesh.VertexUVs[UVIdx][MeshLocalVertexIndex].X,
+						                             Mesh.VertexUVs[UVIdx][MeshLocalVertexIndex].Y);
+					}
+					else
+					{
+						Wedge.UVs[UVIdx] = FVector2f(0.f, 0.f);
+					}
 				}
 
 				// Colors

@@ -1,20 +1,14 @@
 ﻿#pragma once
-
-#include "Database/CoDDatabaseService.h"
 #include "Interface/IGameAssetDiscoverer.h"
-#include "Interface/IMemoryReader.h"
-#include "WraithX/CoDAssetType.h"
-#include "WraithX/GameProcess.h"
 
-class UWraithSettings;
-class UWraithSettingsManager;
+struct FXAsset64;
+struct FXAssetPool64;
 
-class FModernWarfare6AssetDiscoverer : public IGameAssetDiscoverer
+class FModernWarfare5AssetDiscoverer : public IGameAssetDiscoverer
 {
 public:
-	FModernWarfare6AssetDiscoverer();
-	virtual ~FModernWarfare6AssetDiscoverer() override = default;
-
+	FModernWarfare5AssetDiscoverer();
+	virtual ~FModernWarfare5AssetDiscoverer() override = default;
 	virtual bool Initialize(IMemoryReader* InReader,
 	                        const CoDAssets::FCoDGameProcess& InProcessInfo,
 	                        TSharedPtr<LocateGameInfo::FParasyteBaseState> InParasyteState) override;
@@ -33,13 +27,9 @@ public:
 	virtual bool LoadStringTableEntry(uint64 Index, FString& OutString) override;
 
 private:
-	// --- Asset Pool Processing Logic ---
-
-	// Reads the FXAssetPool64 structure
 	bool ReadAssetPoolHeader(int32 PoolIdentifier, FXAssetPool64& OutPoolHeader);
-	// Reads the FXAsset64 structure
 	bool ReadAssetNode(uint64 AssetNodePtr, FXAsset64& OutAssetNode);
-	// Specific asset processing functions called by DiscoverAssetsInPool
+
 	void DiscoverModelAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
 	void DiscoverImageAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
 	void DiscoverAnimAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
@@ -48,8 +38,10 @@ private:
 	void DiscoverMapAssets(FXAsset64 AssetNode, FAssetDiscoveredDelegate OnAssetDiscovered);
 	
 	TSharedPtr<LocateGameInfo::FParasyteBaseState> ParasyteState;
+	
 	CoDAssets::ESupportedGames GameType = CoDAssets::ESupportedGames::None;
 	CoDAssets::ESupportedGameFlags GameFlag = CoDAssets::ESupportedGameFlags::None;
+
 	TSharedPtr<FXSub> XSubDecrypt;
 	TUniquePtr<FCoDCDNDownloader> CDNDownloader;
 };

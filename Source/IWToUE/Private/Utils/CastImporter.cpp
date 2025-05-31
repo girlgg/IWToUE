@@ -942,6 +942,20 @@ USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshA
 
 	CreatedObjects.Add(SkeletalMesh);
 
+	// 计算最大UV通道数
+	uint32 MaxNumTexCoords = 0;
+	for (FCastRoot& Root : CastManager->Scene->Roots)
+	{
+		for (FCastModelInfo& Model : Root.Models)
+		{
+			for (FCastMeshInfo& Mesh : Model.Meshes)
+			{
+				MaxNumTexCoords = FMath::Max(MaxNumTexCoords, (uint32)Mesh.VertexUVs.Num());
+			}
+		}
+	}
+	MaxNumTexCoords = FMath::Min(MaxNumTexCoords, (uint32)MAX_STATIC_TEXCOORDS);
+
 	FSkeletalMeshImportData Data;
 	{
 		// 处理骨骼
@@ -1014,9 +1028,8 @@ USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshA
 			}
 		}
 
-		// 一般是两个UV层，第一个是正常UV，第二个是光照贴图
-		// 可以支持更多UV层，暂时还没发现这样的cast文件
-		Data.NumTexCoords = 2;
+		Data.NumTexCoords = MaxNumTexCoords;
+
 		// 面 和 材质
 		int32 VertexOffset = 0;
 		TArray<int32> VertexOrder = {0, 1, 2};
@@ -1074,7 +1087,20 @@ USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshA
 								                      (Mesh.VertexColor[MeshVertexID] >> 16) & 0xFF,
 								                      (Mesh.VertexColor[MeshVertexID] >> 24) & 0xFF);
 							}
-							Wedges.UVs[0] = FVector2f(Mesh.VertexUVs[0][MeshVertexID].X, Mesh.VertexUVs[0][MeshVertexID].Y);
+							for (uint32 UVChannelIndex = 0; UVChannelIndex < Data.NumTexCoords; ++UVChannelIndex)
+							{
+								if (Mesh.VertexUVs.IsValidIndex(UVChannelIndex) && Mesh.VertexUVs[UVChannelIndex].
+									IsValidIndex(MeshVertexID))
+								{
+									Wedges.UVs[UVChannelIndex] = FVector2f(
+										Mesh.VertexUVs[UVChannelIndex][MeshVertexID].X,
+										Mesh.VertexUVs[UVChannelIndex][MeshVertexID].Y);
+								}
+								else
+								{
+									Wedges.UVs[UVChannelIndex] = FVector2f::ZeroVector;
+								}
+							}
 							Wedges.Reserved = 0;
 
 							Triangle.TangentZ[FaceVertexID] = FVector3f{
@@ -1140,7 +1166,7 @@ USkeletalMesh* FCastImporter::ImportSkeletalMesh(CastScene::FImportSkeletalMeshA
 	ImportedResource->LODModels.Empty();
 	ImportedResource->LODModels.Add(new FSkeletalMeshLODModel());
 	FSkeletalMeshLODModel& LODModel = SkeletalMesh->GetImportedModel()->LODModels[0];
-	LODModel.NumTexCoords = 2;
+	LODModel.NumTexCoords = MaxNumTexCoords;
 
 	// 处理材质
 	TArray<FSkeletalMaterial>& InMaterials = SkeletalMesh->GetMaterials();

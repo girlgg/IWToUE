@@ -1,4 +1,6 @@
 ﻿#pragma once
+#include "BlackOps6AssetDiscoverer.h"
+#include "ModernWarfare5AssetDiscoverer.h"
 #include "ModernWarfare6AssetDiscoverer.h"
 #include "WraithX/LocateGameInfo.h"
 
@@ -28,8 +30,12 @@ public:
 
 		switch (GameIdToUse)
 		{
+		case 0x3232524157444F4D:
+			return MakeShared<FModernWarfare5AssetDiscoverer>();
 		case 0x4B4F4D41594D4159:
 			return MakeShared<FModernWarfare6AssetDiscoverer>();
+		case 0x36504F4B43414C42:
+			return MakeShared<FBlackOps6AssetDiscoverer>();
 		default:
 			UE_LOG(LogTemp, Warning, TEXT("Unsupported GameID for Asset Discoverer: 0x%llX"), GameIdToUse);
 			return nullptr;

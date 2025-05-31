@@ -224,6 +224,7 @@ struct FWraithXModelSubmesh
 	uint64 VertexTangentOffset = 0;
 	// Pointer to UVs
 	uint64 VertexUVsOffset = 0;
+	uint64 VertexSecondUVsOffset = 0;
 	// Pointer to vertex colors
 	uint64 VertexColorOffset = 0;
 	// Pointer to packed index table
@@ -396,26 +397,12 @@ struct FWraithXMap
 	TArray<FWraithMapStaticModelInstance> StaticModelInstances;
 };
 
-struct FMW6XAnimStreamInfo
-{
-	uint64 StreamKey;
-	uint32 Size;
-	uint32 Padding;
-};
-
 enum class EAnimationKeyTypes
 {
 	DivideBySize,
 	MinSizeTable,
 	QuatPackingA,
 	HalfFloat
-};
-
-struct FMW6XAnimNoteTrack
-{
-	uint32 Name;
-	float Time;
-	uint8 Padding[24];
 };
 
 struct FWraithXAnim
